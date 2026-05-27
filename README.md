@@ -27,4 +27,3 @@ The initial proof of concept will focus on:
 - User login
 - Student academic profile setup
 - A simple generated roadmap preview from Y1S1 to Y4S2
-
