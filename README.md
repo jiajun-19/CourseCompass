@@ -17,13 +17,430 @@ It helps students generate a flexible semester-by-semester study roadmap based o
 CourseCompass/
 ├── frontend/
 └── backend/
+└── database/
 ```
 
-## Milestone 1 Proof of Concept
+## System Design
 
-The initial proof of concept will focus on:
+### 1. System Overview
 
-- User registration
-- User login
-- Student academic profile setup
-- A simple generated roadmap preview from Y1S1 to Y4S2
+CourseCompass is a personalised module planning web application for NUS students. The system helps students generate a 3-4 year study roadmap by considering their major requirements, prerequisites, exchange plans, internships, minors, second majors, specialisations, and elective interests.
+
+The system is designed as a web application with a frontend, backend API, and database. The frontend provides the user interface, the backend handles authentication and planning logic, and the database stores modules, prerequisites, constraints, and generated study plans.
+
+### 2. Features
+
+#### Feature List
+
+##### Core Features
+
+- Study Plan Generator 
+- Custom Constraints (Accounts for internship, exchange and lighter workloads)
+- Requirement Checking (Verifies prerequisites and graduation rules)
+
+##### Extension Features
+
+- Minor / second major planner
+- Module Recommendations (Suggests electives based on interests)
+- Visual roadmap display
+
+### 3. User Flow
+
+The main user flow should be simple and guided:
+
+1. Student enters academic goals and constraints.
+2. System validates prerequisites and requirements.
+3. System generates study roadmap.
+4. Student views and edits study roadmap.
+5. Student saves final roadmap.
+
+```mermaid
+flowchart TD
+    A["Open CourseCompass"] --> B["Enter Major"]
+    B --> C["Enter Planning Constraints"]
+    C --> D["Validate Prerequisites and Requirements"]
+    D --> E["Generate Roadmap"]
+    E --> F["View Semester Roadmap"]
+    F --> G{"Edit Plan?"}
+    G -->|"Yes"| H["Move / Replace Modules"]
+    G -->|"No"| I["Save Roadmap"]
+    H --> D
+```
+
+
+
+### 4. System Architecture
+
+#### High-Level Architecture
+
+CourseCompass should use a three-layer architecture:
+
+1. Frontend Layer
+  - Handles user interface and user interactions.
+  - Built with React.
+2. Backend Layer
+  - Handles business logic, roadmap generation, and validation.
+  - Built with Node.js and Express.
+3. Database Layer
+  - Stores modules, prerequisites, constraints, and study plans.
+  - Uses postgreSQL
+
+```mermaid
+flowchart LR
+    U["Web Browser"] --> FE["Frontend: React"]
+    FE --> API["Backend API: Node.js + Express"]
+    API --> PLAN["Roadmap Planning Service"]
+    API --> VALID["Validation Service"]
+    PLAN --> DB["Database"]
+    VALID --> DB
+```
+
+
+
+#### Frontend Responsibilities
+
+- Display login pages.
+- Collect planning constraints.
+- Display generated roadmap.
+- Show warnings and validation results.
+
+#### Backend Responsibilities
+
+- Store module data.
+- Generate roadmap.
+- Validate prerequisites.
+- Validate graduation requirements.
+- Save user roadmap.
+
+#### Database Responsibilities
+
+- Store persistent data.
+- Maintain relationships between profiles, modules, constraints, and plans.
+- Support roadmap retrieval and validation.
+
+### 5. Sequence Diagram
+
+This sequence diagram shows the login and roadmap generation flow.
+
+```mermaid
+sequenceDiagram
+    participant Student
+    participant Frontend
+    participant Backend
+    participant Database
+    participant Planner
+
+    Student->>Frontend: Submit profile and constraints
+    Frontend->>Backend: POST profile + constraints
+    Backend->>Database: Save profile and constraints
+    Backend->>Planner: Generate roadmap
+    Planner->>Database: Fetch modules and prerequisites
+    Database-->>Planner: Module data
+    Planner-->>Backend: Generated roadmap
+    Backend->>Database: Save roadmap
+    Backend-->>Frontend: Return roadmap
+    Frontend-->>Student: Display visual roadmap
+```
+
+
+
+### 6. Activity Diagram
+
+This activity diagram shows the roadmap generation process.
+
+```mermaid
+flowchart TD
+    A["Start Roadmap Generation"] --> B["Load Student Profile"]
+    B --> C["Load Degree Requirements"]
+    C --> D["Load Student Constraints"]
+    D --> E["Place Core Modules"]
+    E --> F["Check Prerequisites"]
+    F --> G{"Prerequisites Valid?"}
+    G -->|"No"| H["Reorder Modules"]
+    H --> F
+    G -->|"Yes"| I["Apply Exchange / Internship Constraints"]
+    I --> J["Add Minor / Elective Modules"]
+    J --> K["Check Workload Balance"]
+    K --> L{"Plan Valid?"}
+    L -->|"No"| M["Adjust Semester Allocation"]
+    M --> K
+    L -->|"Yes"| N["Save Roadmap"]
+    N --> O["Display Roadmap"]
+```
+
+
+
+### 7. Class Diagram
+
+This class diagram shows the main objects in the system.
+
+```mermaid
+classDiagram
+
+    class StudentProfile {
+        +int profileId
+        +string major
+        +int yearOfStudy
+        +int targetGraduationYear
+        +saveProfile()
+    }
+
+    class Module {
+        +string moduleCode
+        +string moduleName
+        +int modularCredits
+        +string semesterAvailable
+    }
+
+    class Prerequisite {
+        +string prerequisiteModuleCode
+    }
+
+    class Constraint {
+        +int constraintId
+        +string constraintType
+        +string semester
+        +string description
+    }
+
+    class StudyPlan {
+        +int planId
+        +generatePlan()
+        +savePlan()
+    }
+
+    class SemesterPlan {
+        +int semesterPlanId
+        +string semester
+        +addModule()
+        +removeModule()
+    }
+
+    StudentProfile "1" --> "*" Constraint
+    StudentProfile "1" --> "*" StudyPlan
+    StudyPlan "1" --> "*" SemesterPlan
+    SemesterPlan "*" --> "*" Module
+    Module "1" --> "*" Prerequisite
+```
+
+
+
+### 8. ER Diagram
+
+This ER diagram shows the proposed database structure.
+
+```mermaid
+erDiagram
+    STUDENT_PROFILES ||--o{ CONSTRAINTS           : "sets"
+    STUDENT_PROFILES ||--o{ STUDY_PLANS           : "owns"
+    STUDY_PLANS      ||--o{ SEMESTER_PLANS        : "consists of"
+    SEMESTER_PLANS   ||--o{ SEMESTER_PLAN_MODULES : "has"
+    MODULES          ||--o{ SEMESTER_PLAN_MODULES : "is placed in"
+    MODULES          ||--o{ PREREQUISITES         : "may have"
+
+    STUDENT_PROFILES {
+        int profile_id PK
+        string major
+        int year_of_study
+        int target_graduation_year
+    }
+
+    MODULES {
+        string module_code PK
+        string module_name 
+        int modular_credits
+        string faculty
+        string semester_available
+    }
+
+    PREREQUISITES {
+        int prerequisite_id PK
+        string module_code FK
+        string prerequisite_module_code FK
+    }
+
+    CONSTRAINTS {
+        int constraint_id PK
+        int profile_id FK
+        string constraint_type
+        string semester
+        string description
+    }
+
+    STUDY_PLANS {
+        int plan_id PK
+        int profile_id FK
+        string plan_name
+        datetime created_at
+    }
+
+    SEMESTER_PLANS {
+        int semesterPlanId PK
+        int plan_id FK
+    }
+
+    SEMESTER_PLAN_MODULES {
+        int semester_plan_module_id PK
+        int semesterPlanId FK
+        string module_code FK
+    }
+```
+
+
+
+### 9. Design Principles
+
+#### 1. Separation of Concerns
+
+The frontend, backend, and database should each have clear responsibilities. The frontend should focus on display and user interaction, while the backend handles planning logic and validation.
+
+#### 2. Modularity
+
+The system should be split into modules such as profile management, roadmap generation, prerequisite checking, and recommendation logic. This makes the system easier to test and extend.
+
+#### 3. Simplicity First
+
+The first prototype should use a simple rule-based roadmap generator instead of a complex optimisation algorithm. This reduces risk and makes Milestone 1 and Milestone 2 achievable.
+
+#### 4. User-Centric Design
+
+The system should present study plans in a way that is easy for students to understand. Warnings should be clear, and the roadmap should be visual instead of text-heavy.
+
+#### 5. Data Integrity
+
+Prerequisites, graduation requirements, and module constraints should be validated on the backend to avoid invalid plans.
+
+#### 6. Extensibility
+
+The system should be designed so future features such as module recommendations, specialisation planning, and PDF export can be added without rewriting the entire application.
+
+### 10. Design Patterns
+
+#### Model-View-Controller Style Separation
+
+CourseCompass can use an MVC-inspired structure:
+
+- Model: database entities such as User, Module, StudyPlan, and Constraint
+- View: React frontend pages and components
+- Controller: Express route handlers
+
+This keeps frontend display separate from backend logic and database models.
+
+#### Service Layer Pattern
+
+Backend logic should be placed in services:
+
+- ProfileService
+- RoadmapService
+- ValidationService
+- RecommendationService
+
+This prevents route handlers from becoming too large and makes the logic easier to test.
+
+#### Repository Pattern
+
+Database access can be grouped into repositories:
+
+- ProfileRepository
+- ModuleRepository
+- StudyPlanRepository
+- ConstraintRepository
+
+This keeps SQL queries separate from business logic.
+
+#### Rule-Based Planner
+
+For the first version, roadmap generation should use simple rules:
+
+- Place required core modules first.
+- Ensure prerequisites appear before dependent modules.
+- Avoid placing modules in exchange semesters where appropriate.
+- Reduce workload during internship semesters.
+- Fill remaining slots with electives.
+
+This is easier to explain, test, and improve later.
+
+### 11. Design Decisions
+
+#### Decision 1: Web Application vs Mobile Application
+
+
+| Option             | Pros                                                                              | Cons                                                      |
+| ------------------ | --------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Web application    | Easier to build, accessible on laptops, suitable for planning tables and roadmaps | Less mobile-native                                        |
+| Mobile application | Convenient on phone, app-like experience                                          | More development effort, harder to display large roadmaps |
+
+
+Decision: Build a web application.
+
+Justification: Course planning is easier on a larger screen because students need to compare semesters, modules, requirements, and constraints. A web app is also faster to build for the project timeline.
+
+#### Decision 2: React vs Plain HTML/CSS/JavaScript
+
+
+| Option                    | Pros                                                                 | Cons                                |
+| ------------------------- | -------------------------------------------------------------------- | ----------------------------------- |
+| React                     | Component-based, easier to build interactive roadmap UI, widely used | Requires setup and learning         |
+| Plain HTML/CSS/JavaScript | Simple for small pages                                               | Harder to maintain as features grow |
+
+
+Decision: Use React.
+
+Justification: CourseCompass needs reusable components such as module cards, semester grids, forms, and roadmap views. React is better suited for this than plain HTML/CSS/JavaScript.
+
+#### Decision 3: Node.js/Express vs Python Flask
+
+
+| Option          | Pros                                                       | Cons                                    |
+| --------------- | ---------------------------------------------------------- | --------------------------------------- |
+| Node.js/Express | Same language as frontend, good for REST APIs, lightweight | Requires careful structure as app grows |
+| Python Flask    | Simple backend framework, good for quick APIs              | Different language from frontend        |
+
+
+Decision: Use Node.js and Express.
+
+Justification: Using JavaScript for both frontend and backend makes development simpler for a small team and allows faster integration.
+
+#### Decision 4: SQLite vs PostgreSQL
+
+
+| Option     | Pros                                                               | Cons                                              |
+| ---------- | ------------------------------------------------------------------ | ------------------------------------------------- |
+| SQLite     | Easy setup, no external database server, good for proof of concept | Less suitable for production and multi-user scale |
+| PostgreSQL | More scalable and production-ready                                 | More setup effort                                 |
+
+
+Decision: Use PostgreSQL
+
+Justification: PostgreSQL was chosen to ensure production-readiness from day one. It natively supports the advanced data types and recursive queries necessary for handling complex course prerequisites and dynamic student constraints.
+
+#### Decision 5: Rule-Based Planner vs Optimisation Algorithm
+
+
+| Option                 | Pros                                        | Cons                                             |
+| ---------------------- | ------------------------------------------- | ------------------------------------------------ |
+| Rule-based planner     | Easy to implement, explain, test, and debug | May not always produce the most optimal plan     |
+| Optimisation algorithm | Can generate more optimal plans             | Harder to implement and test within the timeline |
+
+
+Decision: Start with a rule-based planner.
+
+Justification: The project timeline is limited. A rule-based planner is realistic and can still satisfy the main user need of generating a clear roadmap.
+
+### 12. Recommended Milestone 1 Design Scope
+
+For Milestone 1, CourseCompass will focus on a **Relational Architecture Proof of Concept** by deferring user management and the rule-based planner engine. The objective is to establish and validate the end-to-end data pipeline.
+
+**Milestone 1 Core Focus:**
+
+- **Pre-seeded Database:** Establish core PostgreSQL tables populated with sample student profiles, modules, and pre-mapped academic pathways.
+- **Dashboard Display:** A React interface that fetches and displays a mock Y1S1 to Y4S2 roadmap dynamically tied to a selected target profile.
+- **State Modification:** A basic interactive feature (e.g., adding/removing a module) that successfully updates the state in the database and reflects on the UI.
+
+**This explicitly proves that:**
+
+1. The React frontend cleanly renders data structures returned by the server.
+2. The backend effectively handles routing, requests, and database connectivity.
+3. The PostgreSQL database correctly processes relational queries and mutations.
+4. The entire core system is integrated and ready for the implementation of the Rule-Based Planner in Milestone 2.
+
