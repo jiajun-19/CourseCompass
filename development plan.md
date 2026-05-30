@@ -1,22 +1,22 @@
-# CourseCompass Development Plan
+## CourseCompass Development Plan
 
-## Overview
+### Overview
 
 CourseCompass is a personalised course planning web application for NUS students. The final product will allow students to generate a study plan, add personal constraints, check prerequisites and graduation requirements, plan for minors or second majors, receive module recommendations, and visualise their academic roadmap.
 
 ---
 
-# Milestone 1: Ideation and Technical Proof of Concept
+## Milestone 1: Ideation and Technical Proof of Concept
 
 **Deadline:** 1 June 2026, before 2pm SGT
 
-## Goal
+### Goal
 
 Build a technical proof of concept showing that the frontend and backend can work together to generate and display a basic study plan.
 
-## Tasks
+### Tasks
 
-### Project Setup
+#### Project Setup
 
 - Create GitHub repository.
 - Set up React frontend.
@@ -31,14 +31,14 @@ Build a technical proof of concept showing that the frontend and backend can wor
   - GitHub
   - Deployment platform
 
-### System Design
+#### System Design
 
 - Design frontend page for programme input.
 - Design backend endpoint for generating a study plan.
 - Create simple data model for modules and semesters.
 - Create architecture diagram.
 
-### Technical Proof of Concept
+#### Technical Proof of Concept
 
 - Allow user to select one supported programme, such as Business Analytics.
 - Send selected programme from frontend to backend.
@@ -46,7 +46,7 @@ Build a technical proof of concept showing that the frontend and backend can wor
 - Display generated plan in a semester grid or roadmap.
 - Add basic error handling.
 
-## Submission Deliverables
+### Submission Deliverables
 
 - README with:
   - motivation
@@ -64,17 +64,17 @@ Build a technical proof of concept showing that the frontend and backend can wor
   - project idea
   - frontend/backend proof-of-concept demo
 
-## Success Condition
+### Success Condition
 
 A user can select a programme and see a generated study plan returned from the backend.
 
 ---
 
-# Milestone 2: Core Prototype
+## Milestone 2: Core Prototype
 
 **Deadline:** 29 June 2026, before 2pm SGT
 
-## Goal
+### Goal
 
 Build a usable prototype containing the three core features:
 
@@ -84,11 +84,11 @@ Build a usable prototype containing the three core features:
 
 ---
 
-## Week 1: Data Foundations
+### Week 1: Data Foundations
 
 **Dates:** 2 June to 8 June 2026
 
-### Tasks
+#### Tasks
 
 - Create module schema.
 - Create programme requirement schema.
@@ -102,17 +102,17 @@ Build a usable prototype containing the three core features:
   - requirement category
 - Add backend tests for data loading.
 
-### Goal by 8 June
+#### Goal by 8 June
 
 Backend can retrieve modules and programme requirements reliably.
 
 ---
 
-## Week 2: Study Plan Generator
+### Week 2: Study Plan Generator
 
 **Dates:** 9 June to 15 June 2026
 
-### Tasks
+#### Tasks
 
 - Generate a 3-4 year study plan.
 - Respect normal workload per semester.
@@ -123,17 +123,17 @@ Backend can retrieve modules and programme requirements reliably.
 - Avoid obvious invalid module sequencing.
 - Display plan clearly in frontend.
 
-### Goal by 15 June
+#### Goal by 15 June
 
 Feature 1 is meaningfully working and is no longer just hardcoded.
 
 ---
 
-## Week 3: Custom Constraints
+### Week 3: Custom Constraints
 
 **Dates:** 16 June to 22 June 2026
 
-### Tasks
+#### Tasks
 
 - Add support for exchange semester.
 - Add support for internship or lighter workload semester.
@@ -141,30 +141,30 @@ Feature 1 is meaningfully working and is no longer just hardcoded.
 - Add blocked semester if useful.
 - Allow users to select constraints from the frontend.
 
-### Goal by 22 June
+#### Goal by 22 June
 
 Feature 2 works at prototype level.
 
 ---
 
-## Week 4: Prerequisite and Requirement Checking
+### Week 4: Prerequisite and Requirement Checking
 
 **Dates:** 23 June to 28 June 2026
 
-### Tasks
+#### Tasks
 
 - Check that prerequisites appear before dependent modules.
 - Warn if a plan violates requirements.
 - Show missing requirement categories.
 - Add basic system tests.
 
-### Goal by 28 June
+#### Goal by 28 June
 
 Feature 3 works at prototype level.
 
 ---
 
-## Milestone 2 Submission Deliverables
+### Milestone 2 Submission Deliverables
 
 - README updated with:
   - core features developed
@@ -174,17 +174,17 @@ Feature 3 works at prototype level.
 - Poster and video showing prototype.
 - Updated project log.
 
-## Success Condition
+### Success Condition
 
 CourseCompass can generate a basic valid study plan while considering user constraints and prerequisite/requirement checks.
 
 ---
 
-# Milestone 3: Extension Features
+## Milestone 3: Extension Features
 
 **Deadline:** 27 July 2026, before 2pm SGT
 
-## Goal
+### Goal
 
 Complete all extension features.
 
@@ -196,45 +196,45 @@ Extension features:
 
 ---
 
-## Week 1: Minor / Second Major Planner
+### Week 1: Minor / Second Major Planner
 
 **Dates:** 30 June to 6 July 2026
 
-### Tasks
+#### Tasks
 
 - Allow user to select a minor or second major.
 - Add required modules to the generated plan.
 - Detect overloaded or impossible semesters.
 - Show warnings when the plan becomes too heavy.
 
-### Goal by 6 July
+#### Goal by 6 July
 
 Feature 4 works for at least one minor or second major.
 
 ---
 
-## Week 2: Module Recommendations
+### Week 2: Module Recommendations
 
 **Dates:** 7 July to 13 July 2026
 
-### Tasks
+#### Tasks
 
 - Recommend electives based on interest areas.
 - Recommend modules that fit available semesters.
 - Avoid recommending modules with unmet prerequisites.
 - Label recommendations clearly.
 
-### Goal by 13 July
+#### Goal by 13 July
 
 Feature 5 works at a useful prototype level.
 
 ---
 
-## Week 3: Visual Roadmap
+### Week 3: Visual Roadmap
 
 **Dates:** 14 July to 20 July 2026
 
-### Tasks
+#### Tasks
 
 - Build timeline or semester grid.
 - Colour-code module categories:
@@ -247,17 +247,17 @@ Feature 5 works at a useful prototype level.
 - Allow users to inspect module details.
 - Make UI presentable and readable.
 
-### Goal by 20 July
+#### Goal by 20 July
 
 Feature 6 works and visually matches the intended CourseCompass experience.
 
 ---
 
-## Week 4: Testing and Cleanup
+### Week 4: Testing and Cleanup
 
 **Dates:** 21 July to 26 July 2026
 
-### Tasks
+#### Tasks
 
 - Perform system testing.
 - Conduct user testing with classmates.
@@ -266,7 +266,7 @@ Feature 6 works and visually matches the intended CourseCompass experience.
 - Update poster and video.
 - Document known limitations.
 
-### Suggested User Testing Tasks
+#### Suggested User Testing Tasks
 
 - Generate a plan.
 - Add exchange semester.
@@ -277,7 +277,7 @@ Feature 6 works and visually matches the intended CourseCompass experience.
 
 ---
 
-## Milestone 3 Submission Deliverables
+### Milestone 3 Submission Deliverables
 
 - README updated with:
   - bugs fixed
@@ -288,27 +288,27 @@ Feature 6 works and visually matches the intended CourseCompass experience.
 - Poster and video showing complete system.
 - User testing results.
 
-## Success Condition
+### Success Condition
 
 All six features exist in the app, and users can complete the main CourseCompass planning flow end to end.
 
 ---
 
-# Splashdown: Refinement and Final Presentation
+## Splashdown: Refinement and Final Presentation
 
 **Date:** 26 August 2026
 
-## Goal
+### Goal
 
 Polish, stabilise, and present the final CourseCompass product.
 
 ---
 
-## Phase 1: Fix High-Priority Issues
+### Phase 1: Fix High-Priority Issues
 
 **Dates:** 28 July to 4 August 2026
 
-### Tasks
+#### Tasks
 
 - Fix broken study plans.
 - Fix prerequisite bugs.
@@ -319,11 +319,11 @@ Polish, stabilise, and present the final CourseCompass product.
 
 ---
 
-## Phase 2: Improve Product Quality
+### Phase 2: Improve Product Quality
 
 **Dates:** 5 August to 11 August 2026
 
-### Tasks
+#### Tasks
 
 - Improve loading states.
 - Add clearer empty states.
@@ -334,11 +334,11 @@ Polish, stabilise, and present the final CourseCompass product.
 
 ---
 
-## Phase 3: Final Testing
+### Phase 3: Final Testing
 
 **Dates:** 12 August to 18 August 2026
 
-### Tasks
+#### Tasks
 
 - Perform regression testing.
 - Conduct second round of user testing.
@@ -349,11 +349,11 @@ Polish, stabilise, and present the final CourseCompass product.
 
 ---
 
-## Phase 4: Final Presentation Preparation
+### Phase 4: Final Presentation Preparation
 
 **Dates:** 19 August to 25 August 2026
 
-### Tasks
+#### Tasks
 
 - Prepare final poster.
 - Prepare final video.
@@ -364,11 +364,11 @@ Polish, stabilise, and present the final CourseCompass product.
 
 ---
 
-## Splashdown Day
+### Splashdown Day
 
 **Date:** 26 August 2026
 
-### Tasks
+#### Tasks
 
 - Present final CourseCompass.
 - Demo full user journey.
