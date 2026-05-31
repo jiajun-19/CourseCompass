@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CourseCompass | NUS Course Planner POC</title>
+  </head>
+  <body>
+    <div id="root">
+      <div id="boot-message" style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 32px; color: #17203a;">
+        <strong>Loading CourseCompass...</strong>
+        <p style="color: #65718a;">If this stays here, the React file did not finish loading.</p>
+      </div>
+    </div>
+    <script>
+      window.__COURSECOMPASS_REACT_READY__ = false;
+      window.addEventListener('error', function (event) {
+        var bootMessage = document.getElementById('boot-message');
+        if (!bootMessage || window.__COURSECOMPASS_REACT_READY__) return;
+        bootMessage.innerHTML =
+          '<strong>CourseCompass could not start React.</strong>' +
+          '<p style="color:#f25f5c;">' + (event.message || 'Unknown browser error') + '</p>' +
+          '<p style="color:#65718a;">Open /assets/app.js in the same browser. If it is not JavaScript code, restart the server from the project folder.</p>';
+      });
+      window.setTimeout(function () {
+        var bootMessage = document.getElementById('boot-message');
+        if (!bootMessage || window.__COURSECOMPASS_REACT_READY__) return;
+        bootMessage.innerHTML =
+          '<strong>React has not loaded yet.</strong>' +
+          '<p style="color:#65718a;">The server is running, but the browser did not execute /assets/app.js.</p>' +
+          '<p style="color:#65718a;">Try: stop the server, run npm start again from the project folder, then open http://127.0.0.1:4182/?fresh=1.</p>';
+      }, 2500);
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

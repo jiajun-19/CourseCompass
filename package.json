@@ -1,0 +1,18 @@
+{
+  "scripts": {
+    "start": "npm run build && node server.js",
+    "start:fresh": "npm run build && PORT=4190 node server.js",
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "api": "node server.js",
+    "build": "vite build",
+    "db:setup": "bash scripts/setup-postgres.sh",
+    "db:inspect": "bash scripts/inspect-postgres.sh"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "vite": "^7.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "pg": "^8.13.1"
+  }
+}
