@@ -230,15 +230,21 @@ The system is designed as a web application with a frontend, backend API, and da
 
 ##### Core Features
 
-- Study Plan Generator 
-- Custom Constraints (Accounts for internship, exchange and lighter workloads)
-- Requirement Checking (Verifies prerequisites and graduation rules)
+- Study Plan Generator
+Generates a personalised semester-by-semester academic roadmap based on the student's selected degree programme. The system organises modules across all semesters while ensuring a structured progression towards graduation. 
+- Custom Constraints
+Allows students to incorporate personal academic goals and constraints into their study plan. Examples include exchange programmes, internship semesters, lighter workload preferences, or other scheduling considerations. The generated roadmap adapts accordingly to accommodate these requirements.
+- Requirement Checking
+Automatically validates generated study plans against prerequisite chains and graduation requirements. This helps ensure that students complete modules in a valid order and remain on track to fulfil programme requirements.
 
 ##### Extension Features
 
 - Minor / second major planner
-- Module Recommendations (Suggests electives based on interests)
+Supports students who wish to pursue a minor or second major alongside their primary degree. The planner integrates additional module requirements into the roadmap while balancing workload and graduation timelines.
+- Module Recommendations
+Provides elective module suggestions based on the student's academic interests and chosen programme. This helps students discover relevant modules that align with their goals while satisfying elective requirements.
 - Visual roadmap display
+Presents the generated study plan in an intuitive semester-by-semester visual roadmap. Students can easily view their academic journey from Year 1 Semester 1 through Year 4 Semester 2, improving clarity and long-term planning.
 
 ### 3. User Flow
 
