@@ -20,6 +20,202 @@ CourseCompass/
 └── database/
 ```
 
+## Setup Guide
+
+### Prerequisites
+
+Before running CourseCompass, ensure the following are installed:
+
+* Node.js (v18+ recommended)
+* npm
+* PostgreSQL
+* Git
+
+Verify installation:
+
+```bash
+node -v
+npm -v
+psql --version
+```
+
+---
+
+### 1. Clone the Repository
+
+```bash
+git clone [<repository-url>](https://github.com/jiajun-19/CourseCompass.git)
+cd CourseCompass
+```
+
+---
+
+### 2. Install Backend Dependencies
+
+```bash
+cd backend
+npm install
+```
+
+This installs:
+
+* Express
+* PostgreSQL Driver (pg)
+* CORS
+* dotenv
+
+---
+
+### 3. Install Frontend Dependencies
+
+```bash
+cd ../frontend
+npm install
+npm install react react-dom
+```
+
+---
+
+### 4. Create the Database
+
+Create a PostgreSQL database:
+
+```bash
+createdb coursecompass
+```
+
+If `createdb` does not work, open PostgreSQL manually and run:
+
+```sql
+CREATE DATABASE coursecompass;
+```
+
+---
+
+### 5. Load Database Schema
+
+From the project root:
+
+```bash
+psql -d coursecompass -f database/schema.sql
+```
+
+This creates all required tables.
+
+---
+
+### 6. Seed the Database
+
+```bash
+psql -d coursecompass -f database/seed.sql
+```
+
+This inserts sample data including student profiles and modules.
+
+---
+
+### 7. Configure Backend Environment Variables
+
+Create:
+
+```text
+backend/.env
+```
+
+Example:
+
+```env
+PORT=3000
+DATABASE_URL=postgresql://YOUR_USERNAME@localhost:5432/coursecompass
+```
+
+Replace:
+
+```text
+YOUR_USERNAME
+```
+
+with your PostgreSQL username.
+
+Example:
+
+```env
+DATABASE_URL=postgresql://jiajun@localhost:5432/coursecompass
+```
+
+---
+
+### 8. Start Backend
+
+```bash
+cd backend
+npm run dev
+```
+
+Expected output:
+
+```text
+Server running on port 3000
+```
+
+---
+
+### 9. Verify Backend Connection
+
+Visit:
+
+```text
+http://localhost:3000/db-test
+```
+
+Expected response:
+
+```json
+{
+  "now": "2026-..."
+}
+```
+
+This confirms:
+
+* Express is running
+* PostgreSQL is running
+* Database connection is successful
+
+---
+
+### 10. Start Frontend
+
+Open a new terminal:
+
+```bash
+cd frontend
+npm run dev
+```
+
+Expected output:
+
+```text
+Local: http://localhost:5173/
+```
+
+---
+
+### 11. Open the Application
+
+Visit:
+
+```text
+http://localhost:5173
+```
+
+You should see:
+
+* Student profile dropdown
+* Generated roadmap display
+
+---
+
 ## System Design
 
 ### 1. System Overview
@@ -34,15 +230,21 @@ The system is designed as a web application with a frontend, backend API, and da
 
 ##### Core Features
 
-- Study Plan Generator 
-- Custom Constraints (Accounts for internship, exchange and lighter workloads)
-- Requirement Checking (Verifies prerequisites and graduation rules)
+- Study Plan Generator
+Generates a personalised semester-by-semester academic roadmap based on the student's selected degree programme. The system organises modules across all semesters while ensuring a structured progression towards graduation. 
+- Custom Constraints
+Allows students to incorporate personal academic goals and constraints into their study plan. Examples include exchange programmes, internship semesters, lighter workload preferences, or other scheduling considerations. The generated roadmap adapts accordingly to accommodate these requirements.
+- Requirement Checking
+Automatically validates generated study plans against prerequisite chains and graduation requirements. This helps ensure that students complete modules in a valid order and remain on track to fulfil programme requirements.
 
 ##### Extension Features
 
 - Minor / second major planner
-- Module Recommendations (Suggests electives based on interests)
+Supports students who wish to pursue a minor or second major alongside their primary degree. The planner integrates additional module requirements into the roadmap while balancing workload and graduation timelines.
+- Module Recommendations
+Provides elective module suggestions based on the student's academic interests and chosen programme. This helps students discover relevant modules that align with their goals while satisfying elective requirements.
 - Visual roadmap display
+Presents the generated study plan in an intuitive semester-by-semester visual roadmap. Students can easily view their academic journey from Year 1 Semester 1 through Year 4 Semester 2, improving clarity and long-term planning.
 
 ### 3. User Flow
 
