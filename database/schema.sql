@@ -18,7 +18,16 @@ CREATE TABLE IF NOT EXISTS modules (
   module_name TEXT NOT NULL,
   modular_credits INTEGER NOT NULL CHECK (modular_credits > 0),
   faculty TEXT NOT NULL,
-  semester_available TEXT NOT NULL
+  semester_available TEXT NOT NULL,
+  acad_year TEXT,
+  description TEXT,
+  department TEXT,
+  semesters INTEGER[] NOT NULL DEFAULT '{}',
+  prerequisite_text TEXT,
+  prereq_tree JSONB,
+  preclusion TEXT,
+  nusmods_url TEXT,
+  last_synced_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS prerequisites (
