@@ -24,12 +24,35 @@ function App() {
   const [courses, setCourses] = useState([]);
   const [course, setCourse] = useState('');
   const [plan, setPlan] = useState(null);
+  const [moduleStats, setModuleStats] = useState(null);
+  const [moduleSearch, setModuleSearch] = useState('CS2103T');
+  const [modules, setModules] = useState([]);
 
   useEffect(() => {
     getJson('/api/courses')
       .then((data) => setCourses(data.courses))
       .catch(() => setCourses([]));
+
+    getJson('/api/modules/stats')
+      .then(setModuleStats)
+      .catch(() => setModuleStats(null));
   }, []);
+
+  useEffect(() => {
+    const trimmedSearch = moduleSearch.trim();
+    if (!trimmedSearch) {
+      setModules([]);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      getJson(`/api/modules?search=${encodeURIComponent(trimmedSearch)}`)
+        .then((data) => setModules(data.modules))
+        .catch(() => setModules([]));
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [moduleSearch]);
 
   function getModuleTitle(code) {
     return plan?.modules.find((module) => module.moduleCode === code)?.title || '';
@@ -52,14 +75,36 @@ function App() {
 
   return (
     <main>
-      <select value={course} onChange={handleCourseChange}>
-        <option value="">Select course</option>
-        {courses.map((item) => (
-          <option key={item.id} value={item.id}>
-            {item.name}
-          </option>
-        ))}
-      </select>
+      <div className="controls">
+        <label>
+          <span>Study roadmap proof of concept</span>
+          <select value={course} onChange={handleCourseChange}>
+            <option value="">Select course</option>
+            {courses.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          <span>NUSMods module catalogue</span>
+          <input
+            value={moduleSearch}
+            onChange={(event) => setModuleSearch(event.target.value)}
+            placeholder="Search module code or title"
+          />
+        </label>
+      </div>
+
+      {moduleStats && (
+        <p className="catalogue-status">
+          {moduleStats.moduleCount} NUSMods modules imported for {moduleStats.acadYear}.
+          {' '}
+          {moduleStats.modulesWithPrerequisiteTree} modules include structured prerequisite trees.
+        </p>
+      )}
 
       {plan && (
         <section>
@@ -76,6 +121,27 @@ function App() {
               </ul>
             </div>
           ))}
+        </section>
+      )}
+
+      {modules.length > 0 && (
+        <section>
+          <h2>Module catalogue results</h2>
+          <ul className="module-results">
+            {modules.map((module) => (
+              <li key={module.moduleCode}>
+                <span>{module.moduleCode}</span>
+                <div>
+                  <strong>{module.title}</strong>
+                  <small>
+                    {module.modularCredits} MCs
+                    {module.semesters.length > 0 ? ` · Sem ${module.semesters.join(', ')}` : ''}
+                  </small>
+                  {module.prerequisiteText && <p>{module.prerequisiteText}</p>}
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
     </main>
