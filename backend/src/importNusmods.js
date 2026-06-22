@@ -1,4 +1,4 @@
-const pool = require("../db");
+const pool = require("./db");
 require("dotenv").config();
 
 const ACAD_YEAR = process.env.NUSMODS_ACAD_YEAR || "2025-2026";
@@ -40,12 +40,25 @@ function extractPrerequisiteCodes(tree, codes = new Set()) {
     return codes;
 }
 
-async function fetchJson(url) {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`NUSMods request failed: ${response.status} ${url}`);
+async function fetchJson(url, attempts = 3) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`NUSMods request failed: ${response.status} ${url}`);
+            }
+            return await response.json();
+        } catch (error) {
+            lastError = error;
+            if (attempt < attempts) {
+                await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+            }
+        }
     }
-    return response.json();
+
+    throw lastError;
 }
 
 async function mapWithConcurrency(items, concurrency, mapper) {
@@ -127,12 +140,20 @@ async function importNusmods() {
     const moduleList = await fetchJson(`${API_BASE_URL}/moduleList.json`);
 
     console.log(`Fetching ${moduleList.length} module detail records...`);
-    const details = await mapWithConcurrency(moduleList, CONCURRENCY, async (module, index) => {
+    const fetchedDetails = await mapWithConcurrency(moduleList, CONCURRENCY, async (module, index) => {
         if ((index + 1) % 500 === 0) {
             console.log(`Fetched ${index + 1}/${moduleList.length} module details`);
         }
-        return fetchJson(`${API_BASE_URL}/modules/${encodeURIComponent(module.moduleCode)}.json`);
+        try {
+            return await fetchJson(`${API_BASE_URL}/modules/${encodeURIComponent(module.moduleCode)}.json`);
+        } catch (error) {
+            console.warn(`Skipping ${module.moduleCode}: ${error.message}`);
+            return null;
+        }
     });
+    const details = fetchedDetails.filter(Boolean);
+
+    console.log(`Fetched ${details.length}/${moduleList.length} usable module records`);
 
     const client = await pool.connect();
 
