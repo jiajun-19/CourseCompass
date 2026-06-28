@@ -163,22 +163,24 @@ function prereqLeafCode(leaf) {
 }
 
 // Evaluates a NUSMods structured prerequisite tree (and / or / nOf) against the set of
-// modules completed earlier in the plan. Leaves referencing modules outside the
-// catalogue are treated as satisfied, since they cannot be scheduled here anyway.
-function prereqTreeSatisfied(tree, completed, known) {
+// modules that are present in the student's plan. A module leaf is satisfied only when
+// that module is in the plan; non-module conditions (free-text leaves) are treated as
+// satisfied because they are not module requirements this tool tracks. Used to decide
+// whether removing a module would leave a dependent without a prerequisite it can rely on.
+function prereqSatisfiedByPlan(tree, planSet) {
     if (!tree) return true;
     if (typeof tree === "string") {
         const code = prereqLeafCode(tree);
-        if (!code || !known.has(code)) return true;
-        return completed.has(code);
+        if (!code) return true;
+        return planSet.has(code);
     }
-    if (Array.isArray(tree)) return tree.every((item) => prereqTreeSatisfied(item, completed, known));
+    if (Array.isArray(tree)) return tree.every((item) => prereqSatisfiedByPlan(item, planSet));
     if (typeof tree === "object") {
-        if (Array.isArray(tree.and)) return tree.and.every((item) => prereqTreeSatisfied(item, completed, known));
-        if (Array.isArray(tree.or)) return tree.or.some((item) => prereqTreeSatisfied(item, completed, known));
+        if (Array.isArray(tree.and)) return tree.and.every((item) => prereqSatisfiedByPlan(item, planSet));
+        if (Array.isArray(tree.or)) return tree.or.some((item) => prereqSatisfiedByPlan(item, planSet));
         if (Array.isArray(tree.nOf)) {
             const [count, items] = tree.nOf;
-            return items.filter((item) => prereqTreeSatisfied(item, completed, known)).length >= count;
+            return items.filter((item) => prereqSatisfiedByPlan(item, planSet)).length >= count;
         }
     }
     return true;
@@ -281,7 +283,6 @@ function selectBaseModules(major, modules, moduleByCode, localModuleCredits) {
 
 function buildRoadmap(major, modules, prerequisiteRows, options) {
     const moduleByCode = new Map(modules.map((module) => [module.moduleCode, module]));
-    const known = new Set(moduleByCode.keys());
     const prereqTreeByCode = new Map(modules.map((module) => [module.moduleCode, module.prereqTree || null]));
     const prereqEdges = new Map();
     for (const row of prerequisiteRows) {
@@ -488,16 +489,25 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         if (corePriority.has(code)) {
             errors.push(`${code} is a core module for ${major.name} and is required to graduate, so it can't be removed.`);
         }
+        const blockedDependents = [];
         for (const dependent of planned) {
             const edges = prereqEdges.get(dependent);
             if (!edges || !edges.has(code)) continue;
             const tree = prereqTreeByCode.get(dependent);
-            const withoutRemoved = new Set([...planned]);
-            withoutRemoved.delete(code);
-            const stillSatisfied = tree ? prereqTreeSatisfied(tree, withoutRemoved, known) : false;
-            if (!stillSatisfied) {
-                errors.push(`${code} is a prerequisite for ${dependent}, which is still in your plan. Remove ${dependent} first, or keep ${code}.`);
+            // Block the removal only if it actually flips the dependent from "prerequisite
+            // satisfied by the plan" to "no longer satisfied" — i.e. no other module still
+            // in the plan covers the dependent's prerequisite.
+            let breaksDependent = true;
+            if (tree) {
+                const satisfiedBefore = prereqSatisfiedByPlan(tree, new Set([...planned, code]));
+                const satisfiedAfter = prereqSatisfiedByPlan(tree, planned);
+                breaksDependent = satisfiedBefore && !satisfiedAfter;
             }
+            if (breaksDependent) blockedDependents.push(dependent);
+        }
+        if (blockedDependents.length) {
+            const list = blockedDependents.sort().join(", ");
+            errors.push(`${code} is a prerequisite for ${list} in your plan. Remove ${blockedDependents.length > 1 ? "those modules" : list} first, or keep ${code}.`);
         }
     }
 
