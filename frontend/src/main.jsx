@@ -16,7 +16,6 @@ async function postJson(path, payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error('Request failed');
   return response.json();
 }
 
@@ -28,44 +27,175 @@ const FALLBACK_MAJORS = [
   { id: 'business-administration', name: 'Business Administration', faculty: 'NUS Business School' },
 ];
 
+const GRAD_TARGETS = [
+  { value: 160, label: '160 Units', note: 'Standard' },
+  { value: 140, label: '140 Units', note: 'Poly exemption' },
+];
+
+const INTERNSHIP_UNITS = [4, 8, 10, 12];
+
+// Mirror of the backend timeline: 8 semesters interleaved with winter/summer breaks.
+function buildSlots() {
+  const slots = [];
+  for (let index = 1; index <= 8; index += 1) {
+    const year = Math.ceil(index / 2);
+    const part = index % 2 || 2;
+    slots.push({ id: `Y${year}S${part}`, kind: 'sem', year, part, label: `Year ${year}, Semester ${part}` });
+    if (part === 1) {
+      slots.push({ id: `WIN${year}`, kind: 'winter', year, label: `Year ${year} Winter break` });
+    } else if (index < 8) {
+      slots.push({ id: `SUM${year}`, kind: 'summer', year, label: `Year ${year} Summer (Special Term)` });
+    }
+  }
+  return slots;
+}
+
+const SLOTS = buildSlots();
+const ELIGIBLE_INTERNSHIP_SLOTS = ['Y2S2', 'Y3S1', 'Y3S2', 'Y4S1', 'SUM2', 'SUM3'];
+
 const Icons = {
-  map: <svg viewBox="0 0 24 24"><path d="m3 6 5-2 8 3 5-2v13l-5 2-8-3-5 2zM8 4v13m8-10v13"/></svg>,
+  map: <svg viewBox="0 0 24 24"><path d="m3 6 5-2 8 3 5-2v13l-5 2-8-3-5 2zM8 4v13m8-10v13" /></svg>,
 };
 
 function App() {
   const [majors, setMajors] = useState(FALLBACK_MAJORS);
-  const [major, setMajor] = useState('computer-science');
-  const [exchangeSemester, setExchangeSemester] = useState('6');
-  const [plan, setPlan] = useState(null);
   const [moduleStats, setModuleStats] = useState(null);
-  const [selectedModule, setSelectedModule] = useState(null);
+
+  // Draft controls (applied when "Generate roadmap" is pressed).
+  const [major, setMajor] = useState('computer-science');
+  const [totalCredits, setTotalCredits] = useState(160);
+  const [exchangeSemester, setExchangeSemester] = useState(0);
+  const [internshipSlot, setInternshipSlot] = useState('');
+  const [internshipUnits, setInternshipUnits] = useState(10);
+
+  // Applied state that produced the current plan.
+  const [committed, setCommitted] = useState(null);
+  const [targets, setTargets] = useState({});
+  const [adds, setAdds] = useState([]);
+  const [removes, setRemoves] = useState([]);
+
+  const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    getJson('/api/majors')
-      .then((data) => setMajors(data.majors))
-      .catch(() => setMajors(FALLBACK_MAJORS));
+  const [selectedModule, setSelectedModule] = useState(null);
+  const [adder, setAdder] = useState({ open: false, query: '', results: [], slot: '', busy: false });
 
-    getJson('/api/modules/stats')
-      .then(setModuleStats)
-      .catch(() => setModuleStats(null));
+  useEffect(() => {
+    getJson('/api/majors').then((data) => setMajors(data.majors)).catch(() => setMajors(FALLBACK_MAJORS));
+    getJson('/api/modules/stats').then(setModuleStats).catch(() => setModuleStats(null));
   }, []);
 
-  async function generatePlan() {
+  function buildBody(base, overrides) {
+    const internship = base.internshipSlot ? { slot: base.internshipSlot, units: base.internshipUnits } : null;
+    return {
+      major: base.major,
+      totalCredits: base.totalCredits,
+      exchangeSemester: base.exchangeSemester,
+      internship,
+      semesterTargets: overrides.targets && Object.keys(overrides.targets).length ? overrides.targets : null,
+      addModules: overrides.adds || [],
+      removeModules: overrides.removes || [],
+    };
+  }
+
+  // Generates a fresh roadmap from the draft controls, resetting manual edits.
+  async function generate() {
     setLoading(true);
     setError('');
+    const base = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits };
     try {
-      const generatedPlan = await postJson('/api/plans/generate', {
-        major,
-        exchangeSemester: Number(exchangeSemester),
-      });
-      setPlan(generatedPlan);
-    } catch (requestError) {
+      const result = await postJson('/api/plans/generate', buildBody(base, { targets: null, adds: [], removes: [] }));
+      if (!result.ok) {
+        setError(result.errors.join(' '));
+        return;
+      }
+      const nextTargets = {};
+      result.regularSemesters.forEach((semester) => { nextTargets[semester.id] = semester.credits; });
+      setCommitted(base);
+      setTargets(nextTargets);
+      setAdds([]);
+      setRemoves([]);
+      setPlan(result);
+    } catch {
       setError('The roadmap could not be generated. Check that the database and backend are running.');
     } finally {
       setLoading(false);
     }
+  }
+
+  // Re-runs the planner for a post-generation edit, reverting the edit if it is blocked.
+  async function applyEdit(next) {
+    if (!committed) return;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await postJson('/api/plans/generate', buildBody(committed, next));
+      if (!result.ok) {
+        setError(result.errors.join(' '));
+        return false;
+      }
+      if (next.targets) setTargets(next.targets);
+      if (next.adds) setAdds(next.adds);
+      if (next.removes) setRemoves(next.removes);
+      setPlan(result);
+      return true;
+    } catch {
+      setError('That change could not be applied.');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function adjustWorkload(id, delta) {
+    const ids = plan.regularSemesters.map((semester) => semester.id);
+    const nextTargets = {};
+    ids.forEach((slotId) => { nextTargets[slotId] = targets[slotId] ?? 0; });
+    const current = nextTargets[id] ?? 0;
+    const updated = current + delta;
+    if (updated < 0 || updated > 32) return;
+    const others = ids.filter((slotId) => slotId !== id);
+    if (delta > 0) {
+      const donor = others.sort((a, b) => nextTargets[b] - nextTargets[a]).find((slotId) => nextTargets[slotId] >= delta);
+      if (!donor) { setError('No other semester has enough units to move.'); return; }
+      nextTargets[donor] -= delta;
+    } else {
+      const receiver = others.sort((a, b) => nextTargets[a] - nextTargets[b])[0];
+      if (!receiver) return;
+      nextTargets[receiver] += -delta;
+    }
+    nextTargets[id] = updated;
+    applyEdit({ targets: nextTargets, adds, removes });
+  }
+
+  async function removeModule(code) {
+    setSelectedModule(null);
+    if (adds.some((item) => item.code === code)) {
+      await applyEdit({ targets, adds: adds.filter((item) => item.code !== code), removes });
+      return;
+    }
+    if (removes.includes(code)) return;
+    await applyEdit({ targets, adds, removes: [...removes, code] });
+  }
+
+  async function searchModules(query) {
+    setAdder((state) => ({ ...state, query }));
+    if (!query.trim()) { setAdder((state) => ({ ...state, results: [] })); return; }
+    try {
+      const data = await getJson(`/api/modules?search=${encodeURIComponent(query.trim())}`);
+      setAdder((state) => ({ ...state, results: data.modules.slice(0, 6) }));
+    } catch {
+      setAdder((state) => ({ ...state, results: [] }));
+    }
+  }
+
+  async function confirmAdd(code) {
+    if (!adder.slot) { setError('Choose a semester or break to add the module to.'); return; }
+    setAdder((state) => ({ ...state, busy: true }));
+    const ok = await applyEdit({ targets, adds: [...adds, { code, slot: adder.slot }], removes });
+    setAdder({ open: false, query: '', results: [], slot: '', busy: false });
+    if (ok) setError('');
   }
 
   const moduleByCode = useMemo(
@@ -73,12 +203,12 @@ function App() {
     [plan],
   );
 
-  const counts = useMemo(() => {
-    const local = plan?.semesters.reduce((sum, semester) => sum + (plan.plan[semester]?.length || 0), 0) || 0;
-    const exchange = plan?.exchangeSemester ? 5 : 0;
-    const credits = (plan?.modules || []).reduce((sum, item) => sum + Number(item.modularCredits || 4), 0);
-    return { modules: local + exchange, credits: credits + (plan?.exchangeCredits || 0) };
-  }, [plan]);
+  const addSlotOptions = useMemo(() => SLOTS.filter((slot) => {
+    if (!plan) return false;
+    if (slot.id === plan.exchangeSlotId) return false;
+    if (plan.internship && slot.id === plan.internship.slot) return false;
+    return true;
+  }), [plan]);
 
   const majorGroups = useMemo(() => majors.reduce((groups, item) => {
     const faculty = item.faculty || 'Other programmes';
@@ -87,13 +217,17 @@ function App() {
     return groups;
   }, {}), [majors]);
 
+  const stats = useMemo(() => {
+    if (!plan) return { modules: 0, credits: 0 };
+    const moduleCount = plan.timeline.reduce((sum, slot) => sum + slot.modules.length, 0);
+    return { modules: moduleCount, credits: plan.scheduledCredits };
+  }, [plan]);
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><strong>Course<span>Compass</span></strong></div>
-        <nav>
-          <a className="active" href="#roadmap">{Icons.map}<span>Roadmap</span></a>
-        </nav>
+        <nav><a className="active" href="#roadmap">{Icons.map}<span>Roadmap</span></a></nav>
         <div className="student"><span>NS</span><div><b>NUS Student</b><small>Undergraduate plan</small></div></div>
       </aside>
 
@@ -101,50 +235,192 @@ function App() {
         <header className="topbar"><span>Your plan&nbsp;&nbsp; / &nbsp;&nbsp;<b>Roadmap</b></span></header>
         <div className="content">
           <section className="hero" id="overview">
-            <div><span className="eyebrow">PERSONALISED FOR YOU</span><h1>Your study roadmap</h1><p>A clear semester-by-semester path, built around your goals.</p></div>
+            <div><span className="eyebrow">PERSONALISED FOR YOU</span><h1>Your study roadmap</h1><p>A clear semester-by-semester path, built around your goals and constraints.</p></div>
             <div className="track-pill"><i>✓</i> Prerequisites on track</div>
           </section>
 
           <section className="planner-panel">
-            <div className="panel-heading"><span>01</span><div><h2>Shape your journey</h2><p>Choose your programme and tell us when you’ll be away.</p></div></div>
+            <div className="panel-heading"><span>01</span><div><h2>Shape your journey</h2><p>Choose your programme and add the constraints that matter to you.</p></div></div>
+
             <div className="controls">
-              <label><span>Your major</span><div className="select-field"><i>⌘</i><select aria-label="Your major" value={major} onChange={(event) => setMajor(event.target.value)}>{Object.entries(majorGroups).map(([faculty, programmes]) => <optgroup key={faculty} label={faculty}>{programmes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></div></label>
-              <label><span>Exchange semester</span><div className="select-field"><i>✈</i><select aria-label="Exchange semester" value={exchangeSemester} onChange={(event) => setExchangeSemester(event.target.value)}><option value="0">No exchange planned</option>{Array.from({ length: 8 }, (_, index) => <option key={index + 1} value={index + 1}>Year {Math.floor(index / 2) + 1}, Semester {(index % 2) + 1}</option>)}</select></div></label>
-              <button className="generate" onClick={generatePlan} disabled={loading}>{loading ? 'Building your plan…' : 'Generate roadmap'}<span>→</span></button>
+              <label><span>Your major</span><div className="select-field"><i>⌘</i>
+                <select aria-label="Your major" value={major} onChange={(event) => setMajor(event.target.value)}>
+                  {Object.entries(majorGroups).map(([faculty, programmes]) => (
+                    <optgroup key={faculty} label={faculty}>
+                      {programmes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </div></label>
+
+              <label><span>Exchange semester</span><div className="select-field"><i>✈</i>
+                <select aria-label="Exchange semester" value={exchangeSemester} onChange={(event) => setExchangeSemester(Number(event.target.value))}>
+                  <option value="0">No exchange planned</option>
+                  {Array.from({ length: 8 }, (_, index) => (
+                    <option key={index + 1} value={index + 1}>Year {Math.floor(index / 2) + 1}, Semester {(index % 2) + 1}</option>
+                  ))}
+                </select>
+              </div></label>
+
+              <button className="generate" onClick={generate} disabled={loading}>{loading ? 'Building…' : 'Generate roadmap'}<span>→</span></button>
             </div>
+
+            <div className="constraint-row">
+              <div className="constraint">
+                <span className="constraint-label">Graduation requirement</span>
+                <div className="seg" role="group" aria-label="Graduation requirement">
+                  {GRAD_TARGETS.map((option) => (
+                    <button key={option.value} type="button" className={totalCredits === option.value ? 'on' : ''} onClick={() => setTotalCredits(option.value)}>
+                      {option.label}<small>{option.note}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="constraint">
+                <span className="constraint-label">Internship (single, Year 2 Sem 2 – Year 4 Sem 1)</span>
+                <div className="intern-controls">
+                  <div className="select-field slim"><i>💼</i>
+                    <select aria-label="Internship period" value={internshipSlot} onChange={(event) => setInternshipSlot(event.target.value)}>
+                      <option value="">No internship</option>
+                      {ELIGIBLE_INTERNSHIP_SLOTS.map((id) => (
+                        <option key={id} value={id}>{SLOTS.find((slot) => slot.id === id)?.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="select-field slim"><i>⏱</i>
+                    <select aria-label="Internship units" value={internshipUnits} disabled={!internshipSlot} onChange={(event) => setInternshipUnits(Number(event.target.value))}>
+                      {INTERNSHIP_UNITS.map((units) => <option key={units} value={units}>{units} Units</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {error && <p className="error-message">{error}</p>}
           </section>
 
+          {plan && (
+            <section className="planner-panel workload-panel">
+              <div className="panel-heading"><span>02</span><div><h2>Balance your workload</h2><p>Move units between semesters in steps of 4 — the rest rebalance automatically.</p></div></div>
+              <div className="workload">
+                {plan.regularSemesters.map((semester) => (
+                  <div className="wl-item" key={semester.id}>
+                    <b>{semester.id}</b>
+                    <div className="stepper">
+                      <button type="button" onClick={() => adjustWorkload(semester.id, -4)} disabled={loading} aria-label={`Decrease ${semester.id}`}>−</button>
+                      <span>{semester.credits}<small>units</small></span>
+                      <button type="button" onClick={() => adjustWorkload(semester.id, 4)} disabled={loading} aria-label={`Increase ${semester.id}`}>+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           <section className="roadmap-section" id="roadmap">
             <div className="roadmap-heading">
-              <div className="panel-heading"><span>02</span><div><h2>Your recommended plan</h2><p>{plan?.major.name || majors.find((item) => item.id === major)?.name} · {plan?.major.faculty || majors.find((item) => item.id === major)?.faculty} · 4 years</p></div></div>
-              <div className="data-status"><i />{moduleStats ? `${moduleStats.moduleCount.toLocaleString()} live NUS modules` : 'NUSMods catalogue'}</div>
+              <div className="panel-heading"><span>{plan ? '03' : '02'}</span><div><h2>Your recommended plan</h2><p>{plan?.major.name || majors.find((item) => item.id === major)?.name} · {plan?.major.faculty || majors.find((item) => item.id === major)?.faculty} · 4 years</p></div></div>
+              <div className="roadmap-tools">
+                {plan && <button type="button" className="add-toggle" onClick={() => setAdder((state) => ({ ...state, open: !state.open }))}>{adder.open ? 'Close' : '+ Add module'}</button>}
+                <div className="data-status"><i />{moduleStats ? `${moduleStats.moduleCount.toLocaleString()} live NUS modules` : 'NUSMods catalogue'}</div>
+              </div>
             </div>
+
+            {plan && adder.open && (
+              <div className="adder">
+                <input autoFocus value={adder.query} placeholder="Search a module code or title (e.g. MA1521)" onChange={(event) => searchModules(event.target.value)} />
+                <div className="select-field slim adder-slot"><i>📍</i>
+                  <select aria-label="Add to slot" value={adder.slot} onChange={(event) => setAdder((state) => ({ ...state, slot: event.target.value }))}>
+                    <option value="">Choose semester / break…</option>
+                    {addSlotOptions.map((slot) => <option key={slot.id} value={slot.id}>{slot.label}</option>)}
+                  </select>
+                </div>
+                <div className="adder-results">
+                  {adder.results.map((module) => (
+                    <button type="button" key={module.moduleCode} className="adder-result" disabled={adder.busy} onClick={() => confirmAdd(module.moduleCode)}>
+                      <b>{module.moduleCode}</b><span>{module.title}</span><small>{module.modularCredits} units · add →</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {plan && plan.warnings.length > 0 && (
+              <div className="notice warn">
+                {plan.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
+              </div>
+            )}
+            {plan && (
+              <div className={`notice ${plan.graduation.meetsTarget ? 'good' : 'warn'}`}>
+                <p>{plan.graduation.meetsTarget
+                  ? `On track to graduate — ${plan.graduation.scheduledCredits} / ${plan.graduation.targetCredits} Units planned.`
+                  : `${plan.graduation.scheduledCredits} / ${plan.graduation.targetCredits} Units planned.`}</p>
+              </div>
+            )}
 
             <div className="roadmap-grid">
               <div className="timeline">
-                {!plan && !error && <div className="empty-state">Choose your preferences to build a roadmap.</div>}
-                {plan?.semesters.map((semester, index) => {
-                  const isExchange = plan.exchangeSemester === index + 1;
-                  return <article className={`semester ${isExchange ? 'exchange' : ''}`} key={semester}>
-                    <div className="node"><i /></div>
-                    <div className="semester-name"><b>{semester}</b><small>Year {Math.floor(index / 2) + 1} · Semester {(index % 2) + 1}</small></div>
-                    {isExchange ? <div className="exchange-card"><span>✈</span><div><b>Semester abroad</b><small>20 exchange units mapped to degree requirements</small></div></div> :
-                      <div className="module-row">{(plan.plan[semester] || []).map((code) => { const item = moduleByCode.get(code); return <button className="module-card" key={code} onClick={() => setSelectedModule(item)}><b>{code}</b><span>{item?.title}</span><small>{item?.modularCredits || 4} units</small></button>; })}</div>}
-                  </article>;
+                {!plan && !error && <div className="empty-state">Choose your preferences and generate a roadmap.</div>}
+                {plan?.timeline.map((slot) => {
+                  const kindClass = slot.isExchange ? 'exchange' : slot.isInternship ? 'internship' : slot.kind !== 'sem' ? 'break' : '';
+                  return (
+                    <article className={`semester ${kindClass}`} key={slot.id}>
+                      <div className="node"><i /></div>
+                      <div className="semester-name"><b>{slot.id}</b><small>{slot.sublabel}</small></div>
+                      {slot.isExchange ? (
+                        <div className="exchange-card"><span>✈</span><div><b>Semester abroad</b><small>20 exchange units mapped to degree requirements</small></div></div>
+                      ) : slot.isInternship ? (
+                        <div className="intern-card"><span>💼</span><div><b>Internship · {slot.internshipUnits} units</b><small>Full-time industry attachment{slot.kind !== 'sem' ? ' (Special Term)' : ''}</small></div></div>
+                      ) : (
+                        <div className="module-row">
+                          {slot.modules.map((code) => {
+                            const item = moduleByCode.get(code);
+                            const isAdded = adds.some((entry) => entry.code === code);
+                            return (
+                              <button className={`module-card ${isAdded ? 'added' : ''}`} key={code} onClick={() => setSelectedModule(item)}>
+                                <b>{code}</b><span>{item?.title}</span><small>{item?.modularCredits || 4} units</small>
+                              </button>
+                            );
+                          })}
+                          {slot.modules.length === 0 && <span className="slot-empty">Open semester</span>}
+                        </div>
+                      )}
+                    </article>
+                  );
                 })}
               </div>
 
               <aside className="summary-card">
                 <div className="summary-title"><h3>At a glance</h3><span><b>4</b><small>years</small></span></div>
-                <div className="stats"><div><small>Total modules</small><b>{counts.modules || '—'}</b></div><div><small>Modular units</small><b>{counts.credits || '—'}</b></div><div><small>Semesters</small><b>8</b></div><div><small>Exchange</small><b>{plan?.exchangeSemester ? '1 sem' : 'None'}</b></div></div>
+                <div className="stats">
+                  <div><small>Total modules</small><b>{stats.modules || '—'}</b></div>
+                  <div><small>Units planned</small><b>{stats.credits || '—'}</b></div>
+                  <div><small>Exchange</small><b>{plan?.exchangeSemester ? '1 sem' : 'None'}</b></div>
+                  <div><small>Internship</small><b>{plan?.internship ? `${plan.internship.units}u` : 'None'}</b></div>
+                </div>
               </aside>
             </div>
           </section>
         </div>
       </main>
 
-      {selectedModule && <div className="modal-backdrop" role="presentation" onClick={() => setSelectedModule(null)}><section className="module-modal" role="dialog" aria-modal="true" aria-label="Module details" onClick={(event) => event.stopPropagation()}><button className="close" onClick={() => setSelectedModule(null)}>×</button><span className="module-tag">{selectedModule.moduleCode} · {selectedModule.modularCredits} units</span><h2>{selectedModule.title}</h2><p>{selectedModule.description || 'No description is currently available.'}</p><h3>Prerequisites</h3><p>{selectedModule.prerequisiteText || 'No formal prerequisites listed.'}</p>{selectedModule.nusmodsUrl && <a href={selectedModule.nusmodsUrl} target="_blank" rel="noreferrer">View on NUSMods ↗</a>}</section></div>}
+      {selectedModule && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setSelectedModule(null)}>
+          <section className="module-modal" role="dialog" aria-modal="true" aria-label="Module details" onClick={(event) => event.stopPropagation()}>
+            <button className="close" onClick={() => setSelectedModule(null)}>×</button>
+            <span className="module-tag">{selectedModule.moduleCode} · {selectedModule.modularCredits} units</span>
+            <h2>{selectedModule.title}</h2>
+            <p>{selectedModule.description || 'No description is currently available.'}</p>
+            <h3>Prerequisites</h3>
+            <p>{selectedModule.prerequisiteText || 'No formal prerequisites listed.'}</p>
+            <div className="modal-actions">
+              <button type="button" className="danger" onClick={() => removeModule(selectedModule.moduleCode)} disabled={loading}>Remove from plan</button>
+              {selectedModule.nusmodsUrl && <a href={selectedModule.nusmodsUrl} target="_blank" rel="noreferrer">View on NUSMods ↗</a>}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
