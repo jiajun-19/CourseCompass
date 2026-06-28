@@ -53,6 +53,20 @@ function buildSlots() {
 const SLOTS = buildSlots();
 const ELIGIBLE_INTERNSHIP_SLOTS = ['Y2S2', 'Y3S1', 'Y3S2', 'Y4S1', 'SUM2', 'SUM3'];
 
+// Persist the student's selections and generated roadmap in the browser so the page
+// is restored exactly as they left it on their next visit.
+const STORAGE_KEY = 'coursecompass:state:v1';
+
+function loadSavedState() {
+  try {
+    return JSON.parse(window.localStorage.getItem(STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+const SAVED = loadSavedState();
+
 const Icons = {
   map: <svg viewBox="0 0 24 24"><path d="m3 6 5-2 8 3 5-2v13l-5 2-8-3-5 2zM8 4v13m8-10v13" /></svg>,
 };
@@ -61,20 +75,21 @@ function App() {
   const [majors, setMajors] = useState(FALLBACK_MAJORS);
   const [moduleStats, setModuleStats] = useState(null);
 
-  // Draft controls (applied when "Generate roadmap" is pressed).
-  const [major, setMajor] = useState('computer-science');
-  const [totalCredits, setTotalCredits] = useState(160);
-  const [exchangeSemester, setExchangeSemester] = useState(0);
-  const [internshipSlot, setInternshipSlot] = useState('');
-  const [internshipUnits, setInternshipUnits] = useState(10);
+  // Draft controls (applied when "Generate roadmap" is pressed). Restored from the
+  // student's last visit when available.
+  const [major, setMajor] = useState(SAVED.major ?? 'computer-science');
+  const [totalCredits, setTotalCredits] = useState(SAVED.totalCredits ?? 160);
+  const [exchangeSemester, setExchangeSemester] = useState(SAVED.exchangeSemester ?? 0);
+  const [internshipSlot, setInternshipSlot] = useState(SAVED.internshipSlot ?? '');
+  const [internshipUnits, setInternshipUnits] = useState(SAVED.internshipUnits ?? 10);
 
   // Applied state that produced the current plan.
-  const [committed, setCommitted] = useState(null);
-  const [targets, setTargets] = useState({});
-  const [adds, setAdds] = useState([]);
-  const [removes, setRemoves] = useState([]);
+  const [committed, setCommitted] = useState(SAVED.committed ?? null);
+  const [targets, setTargets] = useState(SAVED.targets ?? {});
+  const [adds, setAdds] = useState(SAVED.adds ?? []);
+  const [removes, setRemoves] = useState(SAVED.removes ?? []);
 
-  const [plan, setPlan] = useState(null);
+  const [plan, setPlan] = useState(SAVED.plan ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -85,6 +100,16 @@ function App() {
     getJson('/api/majors').then((data) => setMajors(data.majors)).catch(() => setMajors(FALLBACK_MAJORS));
     getJson('/api/modules/stats').then(setModuleStats).catch(() => setModuleStats(null));
   }, []);
+
+  // Save the current selections and roadmap so the page restores on the next visit.
+  useEffect(() => {
+    const snapshot = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, committed, targets, adds, removes, plan };
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+    } catch {
+      /* ignore storage write failures (e.g. private mode) */
+    }
+  }, [major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, committed, targets, adds, removes, plan]);
 
   function buildBody(base, overrides) {
     const internship = base.internshipSlot ? { slot: base.internshipSlot, units: base.internshipUnits } : null;
