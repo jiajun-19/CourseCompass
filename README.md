@@ -1028,3 +1028,259 @@ Polish, stabilise, and present the final CourseCompass product.
 
 ---
 
+# Milestone 2
+
+## 🚀 Core Features Developed
+
+### 1. Study Plan Generator
+
+We built a **rule-based study plan generator** that produces a complete semester-by-semester roadmap for a selected major, covering **Year 1 Semester 1** through **Year 4 Semester 2**.
+
+The generator:
+
+- Retrieves **live module data** from the **NUSMods API**
+- Prioritises the major's **core modules**
+- Fills remaining units with appropriate **electives** and **General Education** modules
+- Distributes modules across all **8 semesters**
+- Maintains a sensible workload of approximately **20 units per semester** by default
+
+---
+
+### 2. Requirement Checking
+
+The planner validates each generated study plan against actual graduation requirements instead of simply listing modules.
+
+#### ✅ Graduation Units
+
+- Ensures the study plan satisfies the required graduation units:
+  - **160 units** (standard pathway)
+  - **140 units** (Polytechnic exemption)
+
+#### ✅ Prerequisite Validation
+
+- Verifies that modules are only taken **after all prerequisite modules have been completed**.
+- Supports structured prerequisite logic from **NUSMods**, including:
+  - `AND` requirements
+  - `OR` requirements
+
+#### ✅ Internship Eligibility
+
+Credit-bearing internships are only permitted when students satisfy all eligibility rules:
+
+- At least **70 units completed**
+- Internship is scheduled between:
+  - **Year 2 Semester 2**
+  - **Year 4 Semester 1**
+
+---
+
+### 3. Custom Constraints
+
+Students can personalise the generated roadmap according to their academic plans.
+
+#### 🌏 Exchange Planning
+
+- Mark any semester as an **Exchange Semester**
+- The semester is left free of local modules
+- Exchange units are counted towards graduation
+
+#### 💼 Internship Planning
+
+Students may schedule **one credit-bearing internship**:
+
+- Available sizes:
+  - 4 units
+  - 8 units
+  - 10 units
+  - 12 units
+- Can be placed in:
+  - Eligible regular semesters
+  - Summer **Special Term** (e.g. SIP)
+- Internship units contribute towards graduation requirements
+- Remaining semesters automatically adjust accordingly
+
+#### ➕ Add / Remove Modules
+
+Students can:
+
+- Add any module to:
+  - A semester
+  - A Special Term
+- Remove modules
+- Automatically revalidate the study plan after every change
+
+#### 🎓 Graduation Requirement Toggle
+
+Students may switch between:
+
+- **160-unit graduation requirement**
+- **140-unit Polytechnic exemption**
+
+The planner automatically repacks the entire roadmap.
+
+#### ⚖️ Workload Balancing
+
+Students can adjust the workload of any semester in **4-unit increments**.
+
+The planner automatically redistributes remaining modules so that:
+
+- Graduation requirements remain satisfied
+- Total units remain unchanged
+
+---
+
+### 4. Extension Features
+
+#### 🗺️ Visual Roadmap
+
+The generated study plan is presented as a clean semester-by-semester timeline featuring:
+
+- Module cards
+- Internship cards
+- Exchange cards
+- Summary of:
+  - Total modules
+  - Total units
+
+Winter and Summer **Special Terms** only appear when they contain planned activities.
+
+#### 💾 Saved Progress
+
+The application stores the student's progress in the browser using **Local Storage**.
+
+This allows users to:
+
+- Refresh the page without losing progress
+- Return later and continue where they left off
+- Restore the exact generated roadmap instantly
+
+---
+
+## ⚠️ Problems Encountered
+
+### 1. Prerequisite Data Did Not Match Real Eligibility
+
+The prerequisite information provided by **NUSMods** only records **module prerequisites** and does not include alternative qualifications such as:
+
+- A-Level subjects
+- Bridging qualifications
+
+For example:
+
+- **MA1521** lists **MA1301** as its prerequisite.
+- However, many students satisfy this requirement through **A-Level Mathematics** instead.
+
+This caused valid module selections to be incorrectly rejected.
+
+**Solution**
+
+We only enforce a prerequisite if that prerequisite module actually exists within the student's study plan.
+
+Requirements assumed to be satisfied before university (such as A-Level Mathematics) are treated as already fulfilled.
+
+---
+
+### 2. Removing Modules Could Break the Study Plan
+
+Allowing unrestricted module removal created situations where students could:
+
+- Remove compulsory core modules
+- Remove modules required as prerequisites for later modules
+
+This resulted in invalid study plans.
+
+**Solution**
+
+We introduced validation rules that prevent removal when:
+
+- The module is required for graduation
+- Another planned module depends on it as a prerequisite
+
+Whenever removal is blocked, the planner explains exactly why and restores the original study plan.
+
+---
+
+### 3. Workload Rebalancing with Non-4 Unit Modules
+
+Balancing semester workloads proved more difficult than expected because:
+
+- Not every module is worth **4 units**
+- **140 units** cannot be evenly distributed across **8 semesters**
+
+This occasionally left semesters slightly above or below the target workload.
+
+**Solution**
+
+The scheduler packs each semester as close as possible to its target workload.
+
+Any remaining units are placed into the latest semester with available capacity, ensuring the overall graduation requirement is always satisfied.
+
+---
+
+### 4. Internship Rules Produced Unexpected Results
+
+Internships reduce the number of academic modules remaining in the study plan.
+
+In some cases, this unexpectedly reduced the number of completed units before the internship below the required **70-unit eligibility threshold**.
+
+Although the validation behaved correctly, the rejection was initially confusing.
+
+**Solution**
+
+We improved the validation feedback by displaying:
+
+- The number of completed units before the internship
+- The required minimum
+- A suggestion to move the internship to a later semester
+
+---
+
+### 5. Modelling Special Terms
+
+NUS includes Winter and Summer **Special Terms** between regular semesters.
+
+Displaying all possible Special Terms by default resulted in a cluttered roadmap containing many empty rows.
+
+**Solution**
+
+Special Terms are only displayed when they actually contain:
+
+- Modules
+- Internships
+
+This keeps the roadmap significantly cleaner while still supporting Special Term planning.
+
+---
+
+### 6. Handling the Full Module Catalogue
+
+The planner imports over **7,000 modules** from the **NUSMods API**.
+
+Challenges included:
+
+- Making imports repeatable without duplicating data
+- Preserving existing records during updates
+- Cleaning inconsistent module information such as:
+  - Missing semester availability
+  - Non-standard unit values
+
+**Solution**
+
+A repeatable import process was implemented along with data-cleaning steps before modules are inserted into the planner database.
+
+---
+
+### 7. Saving Progress Without User Accounts
+
+Since the project currently does not include an authentication system, study plans are stored using the browser's **Local Storage**.
+
+This introduced several issues:
+
+- Cached pages occasionally displayed outdated data after deployment
+- Deciding whether to save:
+  - Only user inputs
+  - The entire generated study plan
+
+**Solution**
+
+We chose to persist the **entire application state**, allowing the roadmap to reopen instantly exactly as the user left it while avoiding unnecessary regeneration.
