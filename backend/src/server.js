@@ -227,7 +227,8 @@ function prereqAddStatus(tree, completedBefore, planned) {
 
 // Deterministic rule-based module selection for a major up to the local module budget.
 // Independent of the student's manual edits so the base plan is stable across requests.
-function selectBaseModules(major, modules, moduleByCode, localModuleCredits) {
+// Codes in excludeCodes are skipped (e.g. modules the student has pinned manually).
+function selectBaseModules(major, modules, moduleByCode, localModuleCredits, excludeCodes = new Set()) {
     const candidates = modules
         .filter((module) => major.prefixes.some((prefix) => module.moduleCode.startsWith(prefix)))
         .sort((a, b) => moduleLevel(a.moduleCode) - moduleLevel(b.moduleCode) || a.moduleCode.localeCompare(b.moduleCode));
@@ -238,7 +239,7 @@ function selectBaseModules(major, modules, moduleByCode, localModuleCredits) {
     let credits = 0;
 
     function includeModule(code, curated = false) {
-        if (!moduleByCode.has(code) || selected.has(code) || credits >= localModuleCredits) return;
+        if (!moduleByCode.has(code) || selected.has(code) || excludeCodes.has(code) || credits >= localModuleCredits) return;
         const module = moduleByCode.get(code);
         const moduleCredit = moduleCredits(module);
         if (credits + moduleCredit > localModuleCredits) return;
@@ -334,11 +335,8 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     if (exchangeSemester) blockedSemIndices.add(exchangeSemester);
     if (internshipSlot && internshipSlot.kind === "sem") blockedSemIndices.add(internshipSlot.semIndex);
 
-    // --- Module set: deterministic base, then student add / remove edits ---
-    const baseSelected = selectBaseModules(major, modules, moduleByCode, localModuleCredits);
+    // --- Student add / remove edits ---
     const removeSet = new Set((options.removeModules || []).filter((code) => moduleByCode.has(code)));
-    const planned = new Set([...baseSelected].filter((code) => !removeSet.has(code)));
-
     const pinSlot = new Map();
     for (const add of options.addModules || []) {
         const code = add && add.code;
@@ -354,16 +352,36 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         }
         if (targetSlot === exchangeSlotId) errors.push(`You can't add ${code} to your exchange semester.`);
         if (internshipSlotId && targetSlot === internshipSlotId) errors.push(`You can't add ${code} to your internship period.`);
-        planned.add(code);
         pinSlot.set(code, targetSlot);
     }
 
     if (errors.length) return { ok: false, errors };
 
+    // Manually added modules consume the module budget so the graduation total stays
+    // fixed; the auto-generated base shrinks to make room. Modules added to a Special
+    // Term (winter/summer break) sit outside the regular semesters.
+    let pinnedCredits = 0;
+    let breakPinnedCredits = 0;
+    for (const [code, slotId] of pinSlot) {
+        const credits = moduleCredits(moduleByCode.get(code));
+        pinnedCredits += credits;
+        if (slotById.get(slotId).kind !== "sem") breakPinnedCredits += credits;
+    }
+    const autoBudget = Math.max(localModuleCredits - pinnedCredits, 0);
+    const pinnedCodes = new Set(pinSlot.keys());
+
+    // --- Module set: deterministic base (excluding pinned), then apply removals ---
+    const baseSelected = selectBaseModules(major, modules, moduleByCode, autoBudget, pinnedCodes);
+    const planned = new Set([...baseSelected].filter((code) => !removeSet.has(code)));
+    for (const code of pinSlot.keys()) planned.add(code);
+
     // --- Per-semester credit targets for the active (non-blocked) regular semesters ---
+    // Their total is the module credits that fall inside regular semesters (everything
+    // except Special Term additions, exchange and internship units).
     const activeRegular = slots.filter((slot) => slot.kind === "sem" && !blockedSemIndices.has(slot.semIndex));
+    const regularTargetTotal = Math.max(localModuleCredits - breakPinnedCredits, 0);
     const providedTargets = options.semesterTargets && typeof options.semesterTargets === "object" ? options.semesterTargets : null;
-    const evenTarget = activeRegular.length ? localModuleCredits / activeRegular.length : 0;
+    const evenTarget = activeRegular.length ? regularTargetTotal / activeRegular.length : 0;
     const targets = new Map();
     for (const slot of activeRegular) {
         const provided = providedTargets ? Number(providedTargets[slot.id]) : NaN;
@@ -562,6 +580,7 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         timeline,
         modules: allModules,
         regularSemesters: activeRegular.map((slot) => ({ id: slot.id, label: slot.label, credits: slotCredits.get(slot.id) })),
+        regularTargetTotal,
         graduation: { meetsTarget, scheduledCredits: graduationCredits, targetCredits: totalCredits, missingCore },
         warnings,
     };
