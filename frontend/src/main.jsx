@@ -86,6 +86,8 @@ function App() {
   // Applied state that produced the current plan.
   const [committed, setCommitted] = useState(SAVED.committed ?? null);
   const [targets, setTargets] = useState(SAVED.targets ?? {});
+  const [locked, setLocked] = useState(SAVED.locked ?? {});
+  const [editValues, setEditValues] = useState({});
   const [adds, setAdds] = useState(SAVED.adds ?? []);
   const [removes, setRemoves] = useState(SAVED.removes ?? []);
 
@@ -103,13 +105,13 @@ function App() {
 
   // Save the current selections and roadmap so the page restores on the next visit.
   useEffect(() => {
-    const snapshot = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, committed, targets, adds, removes, plan };
+    const snapshot = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, committed, targets, locked, adds, removes, plan };
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     } catch {
       /* ignore storage write failures (e.g. private mode) */
     }
-  }, [major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, committed, targets, adds, removes, plan]);
+  }, [major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, committed, targets, locked, adds, removes, plan]);
 
   function buildBody(base, overrides) {
     const internship = base.internshipSlot ? { slot: base.internshipSlot, units: base.internshipUnits } : null;
@@ -139,6 +141,8 @@ function App() {
       result.regularSemesters.forEach((semester) => { nextTargets[semester.id] = semester.credits; });
       setCommitted(base);
       setTargets(nextTargets);
+      setLocked({});
+      setEditValues({});
       setAdds([]);
       setRemoves([]);
       setPlan(result);
@@ -163,6 +167,7 @@ function App() {
       if (next.targets) setTargets(next.targets);
       if (next.adds) setAdds(next.adds);
       if (next.removes) setRemoves(next.removes);
+      setEditValues({});
       setPlan(result);
       return true;
     } catch {
@@ -173,31 +178,64 @@ function App() {
     }
   }
 
-  function adjustWorkload(id, delta) {
+  // Distribute a total across the regular semesters, keeping locked semesters fixed and
+  // spreading the remainder evenly across the unlocked ones.
+  function distributeTargets(total, baseTargets, lockedMap, ids) {
+    const lockedIds = ids.filter((id) => lockedMap[id]);
+    const unlocked = ids.filter((id) => !lockedMap[id]);
+    const lockedSum = lockedIds.reduce((sum, id) => sum + (baseTargets[id] ?? 0), 0);
+    const next = {};
+    lockedIds.forEach((id) => { next[id] = baseTargets[id] ?? 0; });
+    if (unlocked.length === 0) return next;
+    const budget = Math.max(total - lockedSum, 0);
+    const base = Math.floor(budget / unlocked.length);
+    const remainder = budget - base * unlocked.length;
+    unlocked.forEach((id, index) => { next[id] = base + (index < remainder ? 1 : 0); });
+    return next;
+  }
+
+  // Set one semester's target and rebalance the unlocked others so the regular total is
+  // preserved. Locked semesters are never changed.
+  function setSemesterTarget(id, rawValue) {
+    if (locked[id]) return;
     const ids = plan.regularSemesters.map((semester) => semester.id);
-    const nextTargets = {};
-    ids.forEach((slotId) => { nextTargets[slotId] = targets[slotId] ?? 0; });
-    const current = nextTargets[id] ?? 0;
-    const updated = current + delta;
-    if (updated < 0 || updated > 32) return;
-    const others = ids.filter((slotId) => slotId !== id);
-    if (delta > 0) {
-      const donor = others.sort((a, b) => nextTargets[b] - nextTargets[a]).find((slotId) => nextTargets[slotId] >= delta);
-      if (!donor) { setError('No other semester has enough units to move.'); return; }
-      nextTargets[donor] -= delta;
-    } else {
-      const receiver = others.sort((a, b) => nextTargets[a] - nextTargets[b])[0];
-      if (!receiver) return;
-      nextTargets[receiver] += -delta;
-    }
-    nextTargets[id] = updated;
-    applyEdit({ targets: nextTargets, adds, removes });
+    const total = plan.regularTargetTotal;
+    let desired = Math.round(Number(rawValue));
+    if (!Number.isFinite(desired)) return;
+    desired = Math.max(0, Math.min(40, desired));
+    const lockedSumOthers = ids.filter((other) => other !== id && locked[other]).reduce((sum, other) => sum + (targets[other] ?? 0), 0);
+    const unlocked = ids.filter((other) => other !== id && !locked[other]);
+    if (unlocked.length === 0) { setError('Unlock another semester so this change can be balanced.'); return; }
+    if (desired > total - lockedSumOthers) desired = Math.max(0, total - lockedSumOthers);
+    const budget = total - desired - lockedSumOthers;
+    const base = Math.floor(budget / unlocked.length);
+    const remainder = budget - base * unlocked.length;
+    const next = { ...targets };
+    next[id] = desired;
+    unlocked.forEach((other, index) => { next[other] = base + (index < remainder ? 1 : 0); });
+    applyEdit({ targets: next, adds, removes });
+  }
+
+  function toggleLock(id) {
+    setLocked((current) => ({ ...current, [id]: !current[id] }));
+  }
+
+  function isBreakSlot(slot) {
+    return slot.startsWith('WIN') || slot.startsWith('SUM');
   }
 
   async function removeModule(code) {
     setSelectedModule(null);
-    if (adds.some((item) => item.code === code)) {
-      await applyEdit({ targets, adds: adds.filter((item) => item.code !== code), removes });
+    const addedEntry = adds.find((item) => item.code === code);
+    if (addedEntry) {
+      let nextTargets = targets;
+      if (isBreakSlot(addedEntry.slot) && plan) {
+        const module = (plan.modules || []).find((item) => item.moduleCode === code);
+        const credits = Number(module?.modularCredits || 4);
+        const ids = plan.regularSemesters.map((semester) => semester.id);
+        nextTargets = distributeTargets(plan.regularTargetTotal + credits, targets, locked, ids);
+      }
+      await applyEdit({ targets: nextTargets, adds: adds.filter((item) => item.code !== code), removes });
       return;
     }
     if (removes.includes(code)) return;
@@ -217,8 +255,15 @@ function App() {
 
   async function confirmAdd(code) {
     if (!adder.slot) { setError('Choose a semester or break to add the module to.'); return; }
+    let nextTargets = targets;
+    if (isBreakSlot(adder.slot) && plan) {
+      const module = adder.results.find((item) => item.moduleCode === code);
+      const credits = Number(module?.modularCredits || 4);
+      const ids = plan.regularSemesters.map((semester) => semester.id);
+      nextTargets = distributeTargets(plan.regularTargetTotal - credits, targets, locked, ids);
+    }
     setAdder((state) => ({ ...state, busy: true }));
-    const ok = await applyEdit({ targets, adds: [...adds, { code, slot: adder.slot }], removes });
+    const ok = await applyEdit({ targets: nextTargets, adds: [...adds, { code, slot: adder.slot }], removes });
     setAdder({ open: false, query: '', results: [], slot: '', busy: false });
     if (ok) setError('');
   }
@@ -327,19 +372,45 @@ function App() {
 
           {plan && (
             <section className="planner-panel workload-panel">
-              <div className="panel-heading"><span>02</span><div><h2>Balance your workload</h2><p>Move units between semesters in steps of 4 — the rest rebalance automatically.</p></div></div>
+              <div className="panel-heading"><span>02</span><div><h2>Balance your workload</h2><p>Type a value or use −/+ (1 unit at a time). Lock a semester to fix it; the rest rebalance automatically.</p></div></div>
               <div className="workload">
-                {plan.regularSemesters.map((semester) => (
-                  <div className="wl-item" key={semester.id}>
-                    <b>{semester.id}</b>
-                    <div className="stepper">
-                      <button type="button" onClick={() => adjustWorkload(semester.id, -4)} disabled={loading} aria-label={`Decrease ${semester.id}`}>−</button>
-                      <span>{semester.credits}<small>units</small></span>
-                      <button type="button" onClick={() => adjustWorkload(semester.id, 4)} disabled={loading} aria-label={`Increase ${semester.id}`}>+</button>
+                {plan.regularSemesters.map((semester) => {
+                  const isLocked = !!locked[semester.id];
+                  const value = editValues[semester.id] ?? String(targets[semester.id] ?? semester.credits);
+                  return (
+                    <div className={`wl-item ${isLocked ? 'locked' : ''}`} key={semester.id}>
+                      <div className="wl-head">
+                        <b>{semester.id}</b>
+                        <button type="button" className="lock-btn" onClick={() => toggleLock(semester.id)} aria-pressed={isLocked} title={isLocked ? 'Unlock this semester' : 'Fix this semester'}>{isLocked ? '🔒' : '🔓'}</button>
+                      </div>
+                      <div className="stepper">
+                        <button type="button" onClick={() => setSemesterTarget(semester.id, (targets[semester.id] ?? 0) - 1)} disabled={loading || isLocked} aria-label={`Decrease ${semester.id}`}>−</button>
+                        <input
+                          type="number"
+                          min="0"
+                          max="40"
+                          inputMode="numeric"
+                          value={value}
+                          disabled={isLocked || loading}
+                          onChange={(event) => setEditValues((current) => ({ ...current, [semester.id]: event.target.value }))}
+                          onBlur={(event) => setSemesterTarget(semester.id, event.target.value)}
+                          onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                          aria-label={`${semester.id} units`}
+                        />
+                        <button type="button" onClick={() => setSemesterTarget(semester.id, (targets[semester.id] ?? 0) + 1)} disabled={loading || isLocked} aria-label={`Increase ${semester.id}`}>+</button>
+                      </div>
+                      <small>units</small>
                     </div>
+                  );
+                })}
+                {plan.timeline.filter((slot) => slot.kind !== 'sem' && slot.modules.length > 0).map((slot) => (
+                  <div className="wl-item special" key={slot.id}>
+                    <div className="wl-head"><b>{slot.id}</b><span className="wl-tag">{slot.kind === 'winter' ? 'Winter' : 'Summer'}</span></div>
+                    <div className="wl-readonly">{slot.credits}<small>units</small></div>
                   </div>
                 ))}
               </div>
+              <div className="workload-total"><span>Total planned</span><b>{plan.scheduledCredits} / {plan.totalCredits} units</b></div>
             </section>
           )}
 

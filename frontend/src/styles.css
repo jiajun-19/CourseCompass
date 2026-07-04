@@ -53,12 +53,25 @@ main { grid-column:2; min-width:0; }
 .select-field select:disabled{opacity:.55;cursor:not-allowed}
 .workload-panel{margin-top:18px}
 .workload{display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-top:18px}
-.wl-item{display:grid;gap:8px;padding:12px 10px;border:1px solid #e3edeb;border-radius:11px;background:#fbfdfd;text-align:center}
-.wl-item>b{font:800 11px Manrope;color:#0c1942}
+.wl-item{display:grid;gap:7px;padding:11px 9px;border:1px solid #e3edeb;border-radius:11px;background:#fbfdfd;text-align:center}
+.wl-item.locked{border-color:#bcdcd6;background:#eef8f5}
+.wl-item.special{border-style:dashed;border-color:#d6e4e1;background:#fcfefe}
+.wl-head{display:flex;align-items:center;justify-content:space-between;gap:4px}
+.wl-head>b{font:800 11px Manrope;color:#0c1942}
+.lock-btn{padding:0 2px;border:0;background:none;font-size:11px;line-height:1;opacity:.7}
+.lock-btn[aria-pressed="true"]{opacity:1}
+.wl-tag{font-size:7px;font-weight:700;color:#8a93a2;text-transform:uppercase;letter-spacing:.4px}
 .stepper{display:flex;align-items:center;justify-content:space-between;gap:4px}
-.stepper button{width:26px;height:26px;border:1px solid #cfe1de;border-radius:7px;background:#fff;color:#0a716b;font-size:15px;font-weight:700;line-height:1}
+.stepper button{width:24px;height:28px;flex:none;border:1px solid #cfe1de;border-radius:7px;background:#fff;color:#0a716b;font-size:15px;font-weight:700;line-height:1}
 .stepper button:hover:not(:disabled){background:#e8f6f3}.stepper button:disabled{opacity:.45;cursor:not-allowed}
-.stepper span{font:800 14px Manrope;color:#0a716b}.stepper span small{display:block;font:600 7px 'DM Sans';color:#9aa3af}
+.stepper input{width:100%;min-width:0;height:28px;border:1px solid #d3e3e0;border-radius:7px;text-align:center;font:800 13px Manrope;color:#0a716b;background:#fff;outline:none;-moz-appearance:textfield}
+.stepper input:focus{border-color:#55b8ad;box-shadow:0 0 0 3px #e1f4f0}
+.stepper input:disabled{background:#eef5f3;color:#5e8e89}
+.stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.wl-readonly{font:800 14px Manrope;color:#0a716b;padding-top:3px}.wl-readonly small{display:block;font:600 7px 'DM Sans';color:#9aa3af}
+.wl-item>small{font-size:7px;color:#9aa3af}
+.workload-total{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:14px;padding-top:13px;border-top:1px solid var(--line)}
+.workload-total span{font-size:10px;color:#6f788b}.workload-total b{font:800 14px Manrope;color:#0a716b}
 .roadmap-tools{display:flex;align-items:center;gap:14px}
 .add-toggle{padding:9px 15px;border:1px solid #bfe0d9;border-radius:9px;background:#effaf7;color:#0a716b;font-size:10px;font-weight:700}
 .add-toggle:hover{background:#e2f5f0}
