@@ -88,6 +88,35 @@ const MAJORS = [...CURATED_MAJORS, ...GENERIC_MAJORS]
     .sort((a, b) => a.faculty.localeCompare(b.faculty) || a.name.localeCompare(b.name));
 
 const COMMON_MODULES = ["GEA1000", "ES2660", "CFG1002", "GEC1015", "GEN2001"];
+const ADD_ONS = {
+    none: { id: "none", name: "No minor or second major", type: "none", required: [] },
+    fintechMinor: {
+        id: "fintechMinor",
+        name: "Minor in Financial Technology",
+        type: "minor",
+        required: ["FIN2704", "IS4228", "BT4013", "CS3244", "TR3002"],
+    },
+    statsMinor: {
+        id: "statsMinor",
+        name: "Minor in Statistics",
+        type: "minor",
+        required: ["ST2131", "ST2132", "ST3131", "ST3248", "ST3236"],
+    },
+    managementSecondMajor: {
+        id: "managementSecondMajor",
+        name: "Second Major in Management",
+        type: "secondMajor",
+        required: ["MGT1701", "MKT1705", "ACC1701", "DAO2702", "MNO2705", "BSP3701", "MKT3717", "DBA3701"],
+    },
+};
+
+const INTEREST_AREAS = {
+    ai: ["artificial intelligence", "machine learning", "deep learning", "natural language", "computer vision", "neural"],
+    data: ["data", "analytics", "statistics", "statistical", "database", "mining", "visualisation", "optimization", "optimisation"],
+    software: ["software", "systems", "programming", "architecture", "distributed", "parallel", "cloud"],
+    security: ["security", "privacy", "cryptography", "risk", "fraud", "forensics"],
+    product: ["product", "management", "marketing", "entrepreneurship", "innovation", "business", "strategy"],
+};
 
 function moduleLevel(code) {
     const match = code.match(/\d/);
@@ -102,6 +131,51 @@ function moduleCredits(module) {
 function moduleFamily(code) {
     const match = code.match(/^([A-Z]{2,5}\d{4})[A-Z]+$/);
     return match ? match[1] : code;
+}
+
+function moduleCategory(code, major, addOnCodes, addOnType) {
+    if (addOnCodes.has(code)) return addOnType === "secondMajor" ? "specialisation" : "minor";
+    if (major.core.includes(code)) return "core";
+    if (major.prefixes.some((prefix) => code.startsWith(prefix)) && moduleLevel(code) >= 3) return "specialisation";
+    return "elective";
+}
+
+function recommendationScore(module, terms, major) {
+    const text = `${module.moduleCode} ${module.title || ""} ${module.description || ""}`.toLowerCase();
+    const termScore = terms.reduce((sum, term) => sum + (text.includes(term) ? 2 : 0), 0);
+    const prefixScore = major.prefixes.some((prefix) => module.moduleCode.startsWith(prefix)) ? 2 : 0;
+    const levelScore = moduleLevel(module.moduleCode) >= 2 && moduleLevel(module.moduleCode) <= 4 ? 1 : 0;
+    return termScore + prefixScore + levelScore;
+}
+
+function recommendElectives(modules, major, planned, completed, slotCredits, activeRegular, prereqEdges, interestArea) {
+    const terms = INTEREST_AREAS[interestArea] || INTEREST_AREAS.ai;
+    const plannedFamilies = new Set([...planned].map(moduleFamily));
+    return modules
+        .filter((module) => !planned.has(module.moduleCode))
+        .filter((module) => !plannedFamilies.has(moduleFamily(module.moduleCode)))
+        .filter((module) => !isNonstandardRecommendation(module))
+        .map((module) => {
+            const score = recommendationScore(module, terms, major);
+            const edges = prereqEdges.get(module.moduleCode);
+            const unmet = edges ? [...edges].filter((code) => planned.has(code) && !completed.has(code)) : [];
+            const fitSlot = activeRegular.find((slot) => slotCredits.get(slot.id) + moduleCredits(module) <= 24);
+            return {
+                moduleCode: module.moduleCode,
+                title: module.title,
+                modularCredits: moduleCredits(module),
+                category: "elective",
+                score,
+                fitSlot: fitSlot ? fitSlot.id : null,
+                label: unmet.length ? `Needs ${unmet.join(", ")}` : fitSlot ? `Fits ${fitSlot.id}` : "No light semester available",
+                blocked: unmet.length > 0 || !fitSlot,
+                prerequisiteText: module.prerequisiteText || "",
+                nusmodsUrl: module.nusmodsUrl,
+            };
+        })
+        .filter((item) => item.score > 0)
+        .sort((a, b) => Number(a.blocked) - Number(b.blocked) || b.score - a.score || a.moduleCode.localeCompare(b.moduleCode))
+        .slice(0, 6);
 }
 
 function normalizedTitle(title) {
@@ -298,6 +372,13 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     const exchangeSemester = Number(options.exchangeSemester || 0);
     const exchangeCredits = exchangeSemester ? 20 : 0;
     const exchangeSlotId = exchangeSemester ? SEM_LABELS[exchangeSemester - 1] : null;
+    const addOn = ADD_ONS[options.addOn] || ADD_ONS.none;
+    const interestArea = INTEREST_AREAS[options.interestArea] ? options.interestArea : "ai";
+    const addOnCodes = new Set(addOn.required.filter((code) => moduleByCode.has(code)));
+    const missingAddOnCodes = addOn.required.filter((code) => !moduleByCode.has(code));
+    if (missingAddOnCodes.length) {
+        warnings.push(`${addOn.name} has catalogue gaps and skipped: ${missingAddOnCodes.join(", ")}.`);
+    }
 
     const slots = buildTimelineSlots();
     const slotById = new Map(slots.map((slot) => [slot.id, slot]));
@@ -367,13 +448,23 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         pinnedCredits += credits;
         if (slotById.get(slotId).kind !== "sem") breakPinnedCredits += credits;
     }
-    const autoBudget = Math.max(localModuleCredits - pinnedCredits, 0);
+    const addOnCredits = [...addOnCodes].reduce((sum, code) => sum + moduleCredits(moduleByCode.get(code)), 0);
+    const autoBudget = Math.max(localModuleCredits - pinnedCredits - addOnCredits, 0);
     const pinnedCodes = new Set(pinSlot.keys());
 
     // --- Module set: deterministic base (excluding pinned), then apply removals ---
-    const baseSelected = selectBaseModules(major, modules, moduleByCode, autoBudget, pinnedCodes);
+    const baseSelected = selectBaseModules(major, modules, moduleByCode, autoBudget, new Set([...pinnedCodes, ...addOnCodes]));
     const planned = new Set([...baseSelected].filter((code) => !removeSet.has(code)));
+    for (const code of addOnCodes) {
+        if (removeSet.has(code)) {
+            errors.push(`${code} is required for ${addOn.name}, so it can't be removed while that option is selected.`);
+        } else {
+            planned.add(code);
+        }
+    }
     for (const code of pinSlot.keys()) planned.add(code);
+
+    if (errors.length) return { ok: false, errors };
 
     // --- Per-semester credit targets for the active (non-blocked) regular semesters ---
     // Their total is the module credits that fall inside regular semesters (everything
@@ -400,10 +491,11 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     }
 
     const corePriority = new Map(major.core.map((code, index) => [code, index]));
+    const addOnPriority = new Map([...addOnCodes].map((code, index) => [code, index]));
     const remainingAuto = new Set([...planned].filter((code) => !placed.has(code)));
     const autoOrder = [...remainingAuto].sort((a, b) => {
-        const aPriority = corePriority.has(a) ? corePriority.get(a) : 1000 + moduleLevel(a);
-        const bPriority = corePriority.has(b) ? corePriority.get(b) : 1000 + moduleLevel(b);
+        const aPriority = corePriority.has(a) ? corePriority.get(a) : addOnPriority.has(a) ? 200 + addOnPriority.get(a) : 1000 + moduleLevel(a);
+        const bPriority = corePriority.has(b) ? corePriority.get(b) : addOnPriority.has(b) ? 200 + addOnPriority.get(b) : 1000 + moduleLevel(b);
         return aPriority - bPriority || a.localeCompare(b);
     });
     const completed = new Set();
@@ -540,6 +632,15 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     if (missingCore.length) {
         warnings.push(`Missing core module(s) for ${major.name}: ${missingCore.join(", ")}.`);
     }
+    for (const slot of slots) {
+        const credits = slotCredits.get(slot.id) + (slot.id === exchangeSlotId ? 20 : 0) + (slot.id === internshipSlotId ? internshipUnits : 0);
+        if (slot.kind === "sem" && credits > 24) {
+            warnings.push(`${slot.label} is heavy at ${credits} MCs. Consider moving an elective, minor, or second-major module.`);
+        }
+        if (slot.kind === "sem" && credits > SEMESTER_CAP) {
+            warnings.push(`${slot.label} is likely impossible at ${credits} MCs.`);
+        }
+    }
 
     // --- Output timeline (break slots only when populated or holding the internship) ---
     const timeline = slots
@@ -564,12 +665,20 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
 
     const allModules = [];
     for (const slot of slots) {
-        for (const code of slotModules.get(slot.id)) allModules.push(moduleByCode.get(code));
+        for (const code of slotModules.get(slot.id)) {
+            allModules.push({
+                ...moduleByCode.get(code),
+                category: moduleCategory(code, major, addOnCodes, addOn.type),
+            });
+        }
     }
+    const recommendations = recommendElectives(modules, major, planned, completed, slotCredits, activeRegular, prereqEdges, interestArea);
 
     return {
         ok: true,
         major: { id: major.id, name: major.name, faculty: major.faculty },
+        addOn: { id: addOn.id, name: addOn.name, type: addOn.type, required: [...addOnCodes] },
+        interestArea,
         totalCredits,
         scheduledCredits: graduationCredits,
         localModuleCredits,
@@ -582,6 +691,7 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         regularSemesters: activeRegular.map((slot) => ({ id: slot.id, label: slot.label, credits: slotCredits.get(slot.id) })),
         regularTargetTotal,
         graduation: { meetsTarget, scheduledCredits: graduationCredits, targetCredits: totalCredits, missingCore },
+        recommendations,
         warnings,
     };
 }
@@ -729,6 +839,8 @@ app.post("/api/plans/generate", async (req, res) => {
         exchangeSemester,
         totalCredits: Number(req.body.totalCredits || 160),
         internship: req.body.internship || null,
+        addOn: req.body.addOn || "none",
+        interestArea: req.body.interestArea || "ai",
         semesterTargets: req.body.semesterTargets || null,
         addModules: Array.isArray(req.body.addModules) ? req.body.addModules : [],
         removeModules: Array.isArray(req.body.removeModules) ? req.body.removeModules : [],
