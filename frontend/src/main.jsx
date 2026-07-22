@@ -33,6 +33,25 @@ const GRAD_TARGETS = [
 ];
 
 const INTERNSHIP_UNITS = [4, 8, 10, 12];
+const ADD_ON_OPTIONS = [
+  { value: 'none', label: 'No minor or second major' },
+  { value: 'fintechMinor', label: 'Minor in Financial Technology' },
+  { value: 'statsMinor', label: 'Minor in Statistics' },
+  { value: 'managementSecondMajor', label: 'Second Major in Management' },
+];
+const INTEREST_OPTIONS = [
+  { value: 'ai', label: 'AI and machine learning' },
+  { value: 'data', label: 'Data analytics' },
+  { value: 'software', label: 'Software systems' },
+  { value: 'security', label: 'Cybersecurity' },
+  { value: 'product', label: 'Product and business' },
+];
+const CATEGORY_LABELS = {
+  core: 'Core',
+  elective: 'Elective',
+  minor: 'Minor',
+  specialisation: 'Specialisation',
+};
 
 // Mirror of the backend timeline: 8 semesters interleaved with winter/summer breaks.
 function buildSlots() {
@@ -82,6 +101,8 @@ function App() {
   const [exchangeSemester, setExchangeSemester] = useState(SAVED.exchangeSemester ?? 0);
   const [internshipSlot, setInternshipSlot] = useState(SAVED.internshipSlot ?? '');
   const [internshipUnits, setInternshipUnits] = useState(SAVED.internshipUnits ?? 10);
+  const [addOn, setAddOn] = useState(SAVED.addOn ?? 'none');
+  const [interestArea, setInterestArea] = useState(SAVED.interestArea ?? 'ai');
 
   // Applied state that produced the current plan.
   const [committed, setCommitted] = useState(SAVED.committed ?? null);
@@ -105,13 +126,13 @@ function App() {
 
   // Save the current selections and roadmap so the page restores on the next visit.
   useEffect(() => {
-    const snapshot = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, committed, targets, locked, adds, removes, plan };
+    const snapshot = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, addOn, interestArea, committed, targets, locked, adds, removes, plan };
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     } catch {
       /* ignore storage write failures (e.g. private mode) */
     }
-  }, [major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, committed, targets, locked, adds, removes, plan]);
+  }, [major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, addOn, interestArea, committed, targets, locked, adds, removes, plan]);
 
   function buildBody(base, overrides) {
     const internship = base.internshipSlot ? { slot: base.internshipSlot, units: base.internshipUnits } : null;
@@ -120,6 +141,8 @@ function App() {
       totalCredits: base.totalCredits,
       exchangeSemester: base.exchangeSemester,
       internship,
+      addOn: base.addOn,
+      interestArea: base.interestArea,
       semesterTargets: overrides.targets && Object.keys(overrides.targets).length ? overrides.targets : null,
       addModules: overrides.adds || [],
       removeModules: overrides.removes || [],
@@ -130,7 +153,7 @@ function App() {
   async function generate() {
     setLoading(true);
     setError('');
-    const base = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits };
+    const base = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, addOn, interestArea };
     try {
       const result = await postJson('/api/plans/generate', buildBody(base, { targets: null, adds: [], removes: [] }));
       if (!result.ok) {
@@ -288,9 +311,14 @@ function App() {
   }, {}), [majors]);
 
   const stats = useMemo(() => {
-    if (!plan) return { modules: 0, credits: 0 };
+    if (!plan) return { modules: 0, credits: 0, categories: {} };
     const moduleCount = plan.timeline.reduce((sum, slot) => sum + slot.modules.length, 0);
-    return { modules: moduleCount, credits: plan.scheduledCredits };
+    const categories = (plan.modules || []).reduce((counts, item) => {
+      const category = item.category || 'elective';
+      counts[category] = (counts[category] || 0) + 1;
+      return counts;
+    }, {});
+    return { modules: moduleCount, credits: plan.scheduledCredits, categories };
   }, [plan]);
 
   return (
@@ -306,7 +334,7 @@ function App() {
         <div className="content">
           <section className="hero" id="overview">
             <div><span className="eyebrow">PERSONALISED FOR YOU</span><h1>Your study roadmap</h1><p>A clear semester-by-semester path, built around your goals and constraints.</p></div>
-            <div className="track-pill"><i>✓</i> Prerequisites on track</div>
+            <div className={`track-pill ${plan?.warnings?.length ? 'warn' : ''}`}><i>{plan?.warnings?.length ? '!' : '✓'}</i>{plan?.warnings?.length ? 'Review warnings' : 'Prerequisites on track'}</div>
           </section>
 
           <section className="planner-panel">
@@ -329,6 +357,18 @@ function App() {
                   {Array.from({ length: 8 }, (_, index) => (
                     <option key={index + 1} value={index + 1}>Year {Math.floor(index / 2) + 1}, Semester {(index % 2) + 1}</option>
                   ))}
+                </select>
+              </div></label>
+
+              <label><span>Minor or second major</span><div className="select-field"><i>＋</i>
+                <select aria-label="Minor or second major" value={addOn} onChange={(event) => setAddOn(event.target.value)}>
+                  {ADD_ON_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </div></label>
+
+              <label><span>Elective interest</span><div className="select-field"><i>⌕</i>
+                <select aria-label="Elective interest" value={interestArea} onChange={(event) => setInterestArea(event.target.value)}>
+                  {INTEREST_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </div></label>
 
@@ -416,9 +456,17 @@ function App() {
 
           <section className="roadmap-section" id="roadmap">
             <div className="roadmap-heading">
-              <div className="panel-heading"><span>{plan ? '03' : '02'}</span><div><h2>Your recommended plan</h2><p>{plan?.major.name || majors.find((item) => item.id === major)?.name} · {plan?.major.faculty || majors.find((item) => item.id === major)?.faculty} · 4 years</p></div></div>
+              <div className="panel-heading"><span>{plan ? '03' : '02'}</span><div><h2>Your recommended plan</h2><p>{plan?.major.name || majors.find((item) => item.id === major)?.name} · {plan?.addOn?.name || ADD_ON_OPTIONS.find((item) => item.value === addOn)?.label} · 4 years</p></div></div>
               <div className="roadmap-tools">
                 {plan && <button type="button" className="add-toggle" onClick={() => setAdder((state) => ({ ...state, open: !state.open }))}>{adder.open ? 'Close' : '+ Add module'}</button>}
+                <div className="legend" aria-label="Module categories">
+                  <span><i className="core" />Core</span>
+                  <span><i className="elective" />Elective</span>
+                  <span><i className="minor" />Minor</span>
+                  <span><i className="specialisation" />Specialisation</span>
+                  <span><i className="exchange" />Exchange</span>
+                  <span><i className="internship" />Internship</span>
+                </div>
                 <div className="data-status"><i />{moduleStats ? `${moduleStats.moduleCount.toLocaleString()} live NUS modules` : 'NUSMods catalogue'}</div>
               </div>
             </div>
@@ -473,9 +521,10 @@ function App() {
                           {slot.modules.map((code) => {
                             const item = moduleByCode.get(code);
                             const isAdded = adds.some((entry) => entry.code === code);
+                            const category = item?.category || 'elective';
                             return (
-                              <button className={`module-card ${isAdded ? 'added' : ''}`} key={code} onClick={() => setSelectedModule(item)}>
-                                <b>{code}</b><span>{item?.title}</span><small>{item?.modularCredits || 4} units</small>
+                              <button className={`module-card ${category} ${isAdded ? 'added' : ''}`} key={code} onClick={() => setSelectedModule({ ...item, inPlan: true })}>
+                                <b>{code}</b><span>{item?.title}</span><small>{CATEGORY_LABELS[category] || 'Elective'} · {item?.modularCredits || 4} units</small>
                               </button>
                             );
                           })}
@@ -494,9 +543,26 @@ function App() {
                   <div><small>Units planned</small><b>{stats.credits || '—'}</b></div>
                   <div><small>Exchange</small><b>{plan?.exchangeSemester ? '1 sem' : 'None'}</b></div>
                   <div><small>Internship</small><b>{plan?.internship ? `${plan.internship.units}u` : 'None'}</b></div>
+                  <div><small>Minor</small><b>{stats.categories.minor || 0}</b></div>
+                  <div><small>Specialisation</small><b>{stats.categories.specialisation || 0}</b></div>
                 </div>
               </aside>
             </div>
+
+            {plan?.recommendations?.length > 0 && (
+              <section className="recommend-panel">
+                <div className="panel-heading"><span>04</span><div><h2>Recommended electives</h2><p>Based on {INTEREST_OPTIONS.find((item) => item.value === plan.interestArea)?.label.toLowerCase()} and available semesters.</p></div></div>
+                <div className="recommend-grid">
+                  {plan.recommendations.map((module) => (
+                    <button type="button" className={`recommend-card ${module.blocked ? 'blocked' : ''}`} key={module.moduleCode} onClick={() => setSelectedModule(module)}>
+                      <b>{module.moduleCode}</b>
+                      <span>{module.title}</span>
+                      <small>{module.label}</small>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
           </section>
         </div>
       </main>
@@ -505,13 +571,17 @@ function App() {
         <div className="modal-backdrop" role="presentation" onClick={() => setSelectedModule(null)}>
           <section className="module-modal" role="dialog" aria-modal="true" aria-label="Module details" onClick={(event) => event.stopPropagation()}>
             <button className="close" onClick={() => setSelectedModule(null)}>×</button>
-            <span className="module-tag">{selectedModule.moduleCode} · {selectedModule.modularCredits} units</span>
+            <span className="module-tag">{selectedModule.moduleCode} · {CATEGORY_LABELS[selectedModule.category] || 'Elective'} · {selectedModule.modularCredits} units</span>
             <h2>{selectedModule.title}</h2>
             <p>{selectedModule.description || 'No description is currently available.'}</p>
             <h3>Prerequisites</h3>
             <p>{selectedModule.prerequisiteText || 'No formal prerequisites listed.'}</p>
             <div className="modal-actions">
-              <button type="button" className="danger" onClick={() => removeModule(selectedModule.moduleCode)} disabled={loading}>Remove from plan</button>
+              {selectedModule.inPlan ? (
+                <button type="button" className="danger" onClick={() => removeModule(selectedModule.moduleCode)} disabled={loading}>Remove from plan</button>
+              ) : (
+                <span className="recommend-label">{selectedModule.label || 'Recommended elective'}</span>
+              )}
               {selectedModule.nusmodsUrl && <a href={selectedModule.nusmodsUrl} target="_blank" rel="noreferrer">View on NUSMods ↗</a>}
             </div>
           </section>
