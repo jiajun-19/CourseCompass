@@ -35,19 +35,79 @@ const CURATED_MAJORS = [
         prefixes: ["DSA", "ST", "MA"],
         core: ["DSA1101", "CS1010S", "MA2001", "MA2002", "ST2131", "ST2132", "DSA2101", "DSA2102", "DSA3101", "DSA3102", "DSA4211", "ST3131", "ST3132", "ST3248", "ST4248"],
     },
+];
+
+// The nine NUS Business School (BBA) majors. Cores list the major-specific compulsory
+// courses; the shared Business Function/Environment courses, GE pillars, Field Service
+// Project and capstone are added by the faculty requirement builder.
+const BUSINESS_MAJORS = [
     {
-        id: "business-administration",
-        name: "Business Administration",
+        id: "applied-business-analytics",
+        name: "Applied Business Analytics",
         faculty: "NUS Business School",
-        prefixes: ["ACC", "BSP", "DAO", "FIN", "MKT", "MNO"],
-        core: ["BSP1702", "ACC1701", "DAO1704", "FIN2704", "MKT1705", "MNO1706", "BSP2701", "DAO2702", "DAO2703", "FIN3701", "MKT3701", "MNO3701"],
+        prefixes: ["DBA", "DOS", "DAO", "IT"],
+        core: ["DBA3702", "DBA3803", "IT3010", "MNO2705A"],
+    },
+    {
+        id: "business-economics",
+        name: "Business Economics",
+        faculty: "NUS Business School",
+        prefixes: ["BSE", "EC"],
+        core: ["BSE3702", "BSE3703", "MNO2705A"],
+    },
+    {
+        id: "finance",
+        name: "Finance",
+        faculty: "NUS Business School",
+        prefixes: ["FIN"],
+        core: ["FIN3701A", "FIN3702A", "FIN3703A", "MNO2705A"],
+    },
+    {
+        id: "innovation-entrepreneurship",
+        name: "Innovation & Entrepreneurship",
+        faculty: "NUS Business School",
+        prefixes: ["BSN"],
+        core: ["BSN3701", "BSN3702", "MNO2705A"],
+    },
+    {
+        id: "leadership-human-capital",
+        name: "Leadership & Human Capital Management",
+        faculty: "NUS Business School",
+        prefixes: ["MNO"],
+        core: ["MNO3701", "MNO3702", "MNO3703", "MNO2705A"],
+    },
+    {
+        id: "marketing",
+        name: "Marketing",
+        faculty: "NUS Business School",
+        prefixes: ["MKT"],
+        core: ["MKT3701A", "MKT3702A", "MNO2705A"],
+    },
+    {
+        id: "operations-supply-chain",
+        name: "Operations & Supply Chain Management",
+        faculty: "NUS Business School",
+        prefixes: ["DOS", "DBA"],
+        core: ["DOS3701", "DOS3703", "DOS3704", "MNO2705A"],
+    },
+    {
+        id: "accountancy",
+        name: "Accountancy",
+        faculty: "NUS Business School",
+        prefixes: ["ACC"],
+        core: ["ACC2706", "ACC2707", "ACC2708", "ACC2727", "ACC3702", "ACC3703", "ACC3706", "ACC3727", "ACC4702", "ACC4703"],
+    },
+    {
+        id: "real-estate",
+        name: "Real Estate",
+        faculty: "NUS Business School",
+        prefixes: ["RE"],
+        core: ["RE2702", "RE2705", "RE3701", "RE3705", "RE3706"],
     },
 ];
 
 const GENERIC_MAJORS = [
     ["computer-engineering", "Computer Engineering", "College of Design and Engineering", ["CG", "CS", "EE"]],
-    ["accountancy", "Accountancy", "NUS Business School", ["ACC"]],
-    ["real-estate", "Real Estate", "NUS Business School", ["RE"]],
     ["economics", "Economics", "College of Humanities and Sciences", ["EC"]],
     ["psychology", "Psychology", "College of Humanities and Sciences", ["PL"]],
     ["political-science", "Political Science", "College of Humanities and Sciences", ["PS"]],
@@ -79,7 +139,7 @@ const GENERIC_MAJORS = [
     ["mechanical-engineering", "Mechanical Engineering", "College of Design and Engineering", ["ME"]],
 ].map(([id, name, faculty, prefixes]) => ({ id, name, faculty, prefixes, core: [] }));
 
-const MAJORS = [...CURATED_MAJORS, ...GENERIC_MAJORS]
+const MAJORS = [...CURATED_MAJORS, ...BUSINESS_MAJORS, ...GENERIC_MAJORS]
     .sort((a, b) => a.faculty.localeCompare(b.faculty) || a.name.localeCompare(b.name));
 
 const COMMON_MODULES = ["GEA1000", "ES2660", "CFG1002", "GEC1015", "GEN2001"];
