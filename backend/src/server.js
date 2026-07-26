@@ -103,6 +103,57 @@ const INTEREST_AREAS = {
     education: ["education", "teaching", "learning", "pedagogy", "curriculum", "student"],
 };
 
+// --- School of Computing graduation requirements ---
+// These common-curriculum requirements apply to the three School of Computing degrees.
+const SOC_MAJOR_IDS = new Set(["computer-science", "business-analytics", "information-systems"]);
+const SOC_ETHICS = "IS1108"; // Computing Ethics (4 units)
+
+// Digital Literacy is satisfied by the programming-methodology variant already in each
+// degree's core. Data Literacy and Critique & Expression are satisfied by degree-specific
+// courses; the remaining pillars are drawn from the NUS General Education pools.
+const SOC_DEGREE = {
+    "computer-science": { programming: "CS1101S", dataLiteracy: "GEA1000", critique: "ES2660" },
+    "information-systems": { programming: "CS1010J", dataLiteracy: "BT1101", critique: "ES2660" },
+    "business-analytics": { programming: "CS1010A", dataLiteracy: "BT1101", critique: "ES2660" },
+};
+const PROGRAMMING_VARIANTS = ["CS1010", "CS1010E", "CS1010J", "CS1010S", "CS1010X", "CS1010A", "CS1101S"];
+const PILLAR_PREFIX = { cultures: "GEC", singapore: "GES" };
+
+// Year-long Service Learning pairs (Communities & Engagement). The X course runs in a
+// Semester 1 and its matching Y course in the following Semester 2.
+const SERVICE_LEARNING_PAIRS = [
+    ["GEN2050X", "GEN2050Y"],
+    ["GEN2060X", "GEN2060Y"],
+    ["GEN2061X", "GEN2061Y"],
+    ["GEN2062X", "GEN2062Y"],
+    ["GEN2070X", "GEN2070Y"],
+];
+const SEMESTER_LONG_CE = ["GEN2001", "GEN2050", "GEN2060", "GEN2061", "GEN2062", "GEN2070"];
+
+// Interdisciplinary (ID) course list (Appendix B). Any course from the Chemistry,
+// Physics or Biological Sciences departments (CM/PC/LSM/ZB) also counts as ID.
+const ID_COURSE_LIST = [
+    "DTK1234", "EG1311", "IE2141", "PF1101A", "PF1101", "CDE2501", "EG2501", "CDE2300", "CDE2310", "EG2201A", "EG2310",
+    "IS1128", "IS2218", "IS2238",
+    "HSH1000", "HSS1000", "HSA1000", "HSI1000", "HSI2001", "HSI2002", "HSI2003", "HSI2004", "HSI2005", "HSI2007",
+    "HSI2008", "HSI2009", "HSI2010", "HSI2011", "HSI2013", "HSI2014",
+    "ACC1701", "DAO2703", "MNO1706X", "SC1101E", "EL1101E", "PE2101P", "GE2103", "XD3103", "GE3253", "GE3255",
+    "GE3256", "SPH2002", "SC2226", "NUR1113A",
+];
+const ID_PREFIXES = ["PC", "CM", "LSM", "ZB"];
+const ID_COURSE_SET = new Set(ID_COURSE_LIST);
+const CD_COURSE_SET = new Set(); // Appendix C not yet provided
+const IDCD_REQUIRED_UNITS = 12;
+const IDCD_MIN_ID = 2;
+const IDCD_MAX_CD = 1;
+
+function isIdCourse(code) {
+    return ID_COURSE_SET.has(code) || ID_PREFIXES.some((prefix) => code.startsWith(prefix));
+}
+function isCdCourse(code) {
+    return CD_COURSE_SET.has(code);
+}
+
 function moduleLevel(code) {
     const match = code.match(/\d/);
     return match ? Number(code.slice(match.index, match.index + 1)) : 9;
@@ -429,6 +480,107 @@ function selectBaseModules(major, modules, moduleByCode, localModuleCredits, exc
     return selected;
 }
 
+function pickPillarCourse(modules, prefix, avoid) {
+    const candidate = modules
+        .filter((module) => module.moduleCode.startsWith(prefix) && !avoid.has(module.moduleCode))
+        .filter((module) => moduleCredits(module) === 4)
+        .sort((a, b) => moduleLevel(a.moduleCode) - moduleLevel(b.moduleCode) || a.moduleCode.localeCompare(b.moduleCode));
+    return candidate.length ? candidate[0].moduleCode : null;
+}
+
+// Builds the School of Computing common-curriculum requirement set for a degree:
+// the six university pillars, the computing-ethics course, the year-long Service
+// Learning pair, and 12 units of interdisciplinary/cross-disciplinary courses.
+function buildComputingRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices) {
+    const degree = SOC_DEGREE[major.id];
+    if (!degree) return null;
+
+    const coreSet = new Set(major.core);
+    const covered = new Set([...major.core, ...COMMON_MODULES]);
+    const avoid = new Set(covered);
+    const required = [];
+    const addReq = (code) => {
+        // Core modules already satisfy their requirement, so they are not added again.
+        if (code && moduleByCode.has(code) && !coreSet.has(code) && !required.includes(code)) {
+            required.push(code);
+            avoid.add(code);
+        }
+    };
+    const coveredByPrefix = (prefix) => [...covered].some((code) => code.startsWith(prefix) && moduleByCode.has(code));
+
+    // Digital Literacy: covered by a programming-methodology variant. If the degree's
+    // prescribed variant isn't in the catalogue, add the first available fallback.
+    const coreProgramming = major.core.find((code) => /^CS(1010[A-Z]*|1101S)$/.test(code) && moduleByCode.has(code));
+    let programming = coreProgramming || null;
+    if (!coreProgramming) {
+        programming = [degree.programming, ...PROGRAMMING_VARIANTS].find((code) => moduleByCode.has(code)) || null;
+        addReq(programming);
+    }
+
+    // Pillars
+    addReq(degree.dataLiteracy); // Data Literacy
+    addReq(degree.critique); // Critique & Expression
+    const cultures = coveredByPrefix(PILLAR_PREFIX.cultures)
+        ? [...covered].find((code) => code.startsWith(PILLAR_PREFIX.cultures) && moduleByCode.has(code))
+        : pickPillarCourse(modules, PILLAR_PREFIX.cultures, avoid);
+    if (!coveredByPrefix(PILLAR_PREFIX.cultures)) addReq(cultures);
+    const singapore = coveredByPrefix(PILLAR_PREFIX.singapore)
+        ? [...covered].find((code) => code.startsWith(PILLAR_PREFIX.singapore) && moduleByCode.has(code))
+        : pickPillarCourse(modules, PILLAR_PREFIX.singapore, avoid);
+    if (!coveredByPrefix(PILLAR_PREFIX.singapore)) addReq(singapore);
+
+    // Computing Ethics
+    addReq(SOC_ETHICS);
+
+    // Interdisciplinary / cross-disciplinary: three 4-unit courses (>= 2 ID, <= 1 CD).
+    const idPicked = [];
+    for (const code of ID_COURSE_LIST) {
+        if (idPicked.length >= 3) break;
+        if (!moduleByCode.has(code) || coreSet.has(code) || required.includes(code)) continue;
+        idPicked.push(code);
+        addReq(code);
+    }
+    if (idPicked.length < 3) {
+        const extra = modules
+            .filter((module) => ID_PREFIXES.some((prefix) => module.moduleCode.startsWith(prefix)))
+            .filter((module) => moduleCredits(module) === 4 && !coreSet.has(module.moduleCode) && !required.includes(module.moduleCode))
+            .sort((a, b) => moduleLevel(a.moduleCode) - moduleLevel(b.moduleCode) || a.moduleCode.localeCompare(b.moduleCode));
+        for (const module of extra) {
+            if (idPicked.length >= 3) break;
+            idPicked.push(module.moduleCode);
+            addReq(module.moduleCode);
+        }
+    }
+
+    // Communities & Engagement via a year-long Service Learning pair placed across two
+    // contiguous semesters (Sem 1 -> Sem 2). Prefer Year 2 (or Year 1 for poly students).
+    const pair = SERVICE_LEARNING_PAIRS.find(([x, y]) => moduleByCode.has(x) && moduleByCode.has(y)) || null;
+    const servicePins = new Map();
+    let serviceSlots = null;
+    if (pair) {
+        const preferredYears = totalCredits === 140 ? [1, 2, 3] : [2, 1, 3];
+        for (const year of preferredYears) {
+            const s1 = 2 * year - 1;
+            const s2 = 2 * year;
+            if (!blockedSemIndices.has(s1) && !blockedSemIndices.has(s2)) {
+                serviceSlots = [SEM_LABELS[s1 - 1], SEM_LABELS[s2 - 1]];
+                servicePins.set(pair[0], serviceSlots[0]);
+                servicePins.set(pair[1], serviceSlots[1]);
+                break;
+            }
+        }
+    }
+
+    return {
+        required,
+        idPicked,
+        servicePins,
+        servicePair: serviceSlots ? pair : null,
+        serviceSlots,
+        pillars: { programming, dataLiteracy: degree.dataLiteracy, critique: degree.critique, cultures, singapore },
+    };
+}
+
 function buildRoadmap(major, modules, prerequisiteRows, options) {
     const moduleByCode = new Map(modules.map((module) => [module.moduleCode, module]));
     const prereqTreeByCode = new Map(modules.map((module) => [module.moduleCode, module.prereqTree || null]));
@@ -500,6 +652,11 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     if (exchangeSemester) blockedSemIndices.add(exchangeSemester);
     if (internshipSlot && internshipSlot.kind === "sem") blockedSemIndices.add(internshipSlot.semIndex);
 
+    // --- Faculty (School of Computing) graduation requirements ---
+    const computingReq = buildComputingRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
+    const facultyRequiredCodes = new Set((computingReq?.required || []).filter((code) => moduleByCode.has(code)));
+    const serviceCodes = new Set(computingReq ? [...computingReq.servicePins.keys()] : []);
+
     // --- Student add / remove edits ---
     const removeSet = new Set((options.removeModules || []).filter((code) => moduleByCode.has(code)));
     const pinSlot = new Map();
@@ -520,6 +677,13 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         pinSlot.set(code, targetSlot);
     }
 
+    // Default-place the year-long Service Learning pair unless the student has moved it.
+    if (computingReq) {
+        for (const [code, slotId] of computingReq.servicePins) {
+            if (!pinSlot.has(code) && !removeSet.has(code) && moduleByCode.has(code)) pinSlot.set(code, slotId);
+        }
+    }
+
     if (errors.length) return { ok: false, errors };
 
     // Manually added modules consume the module budget so the graduation total stays
@@ -534,18 +698,34 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     }
     const pinnedCodes = new Set(pinSlot.keys());
     const primaryRequirementCodes = new Set([...major.core, ...COMMON_MODULES].filter((code) => moduleByCode.has(code)));
-    const extraAddOnCodes = new Set([...addOnCodes].filter((code) => !primaryRequirementCodes.has(code) && !pinnedCodes.has(code)));
-    const addOnCredits = [...extraAddOnCodes].reduce((sum, code) => sum + moduleCredits(moduleByCode.get(code)), 0);
-    const autoBudget = Math.max(localModuleCredits - pinnedCredits - addOnCredits, 0);
+    // Add-on and faculty-required modules that are not already core/common and not pinned
+    // consume the module budget.
+    const mandatoryAutoCodes = new Set([...addOnCodes, ...facultyRequiredCodes].filter((code) => !primaryRequirementCodes.has(code) && !pinnedCodes.has(code)));
+    const mandatoryCredits = [...mandatoryAutoCodes].reduce((sum, code) => sum + moduleCredits(moduleByCode.get(code)), 0);
+    const autoBudget = Math.max(localModuleCredits - pinnedCredits - mandatoryCredits, 0);
+
+    // For School of Computing, Communities & Engagement is met by the year-long Service
+    // Learning pair, so keep the semester-long GEN alternatives out of the auto base.
+    const baseExclude = new Set([...pinnedCodes, ...mandatoryAutoCodes]);
+    if (computingReq) for (const code of SEMESTER_LONG_CE) baseExclude.add(code);
 
     // --- Module set: deterministic base (excluding pinned), then apply removals ---
-    const baseSelected = selectBaseModules(major, modules, moduleByCode, autoBudget, new Set([...pinnedCodes, ...extraAddOnCodes]), interestArea);
+    const baseSelected = selectBaseModules(major, modules, moduleByCode, autoBudget, baseExclude, interestArea);
     const planned = new Set([...baseSelected].filter((code) => !removeSet.has(code)));
+
+    // Force-include add-on and faculty-required modules; these are protected from removal
+    // (but can be moved to another semester).
+    const protectedRequired = new Map();
     for (const code of addOnCodes) {
+        const source = secondMajor?.required.includes(code) ? `the ${secondMajor.name} second major` : `the ${minor?.name} minor`;
+        protectedRequired.set(code, source);
+    }
+    for (const code of facultyRequiredCodes) protectedRequired.set(code, `${major.faculty} graduation requirements`);
+    for (const code of serviceCodes) protectedRequired.set(code, `${major.faculty} graduation requirements`);
+    for (const [code, source] of protectedRequired) {
         if (removeSet.has(code)) {
-            const source = secondMajor?.required.includes(code) ? secondMajor.name : minor?.name;
-            errors.push(`${code} is required for ${source}, so it can't be removed while that option is selected.`);
-        } else {
+            errors.push(`${code} is required for ${source}, so it can't be removed. You can move it to another semester instead.`);
+        } else if (moduleByCode.has(code)) {
             planned.add(code);
         }
     }
@@ -579,12 +759,15 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
 
     const corePriority = new Map(major.core.map((code, index) => [code, index]));
     const addOnPriority = new Map([...addOnCodes].map((code, index) => [code, index]));
+    const facultyPriority = new Map((computingReq?.required || []).map((code, index) => [code, index]));
+    const priorityOf = (code) => {
+        if (corePriority.has(code)) return corePriority.get(code);
+        if (addOnPriority.has(code)) return 200 + addOnPriority.get(code);
+        if (facultyPriority.has(code)) return 400 + facultyPriority.get(code);
+        return 1000 + moduleLevel(code);
+    };
     const remainingAuto = new Set([...planned].filter((code) => !placed.has(code)));
-    const autoOrder = [...remainingAuto].sort((a, b) => {
-        const aPriority = corePriority.has(a) ? corePriority.get(a) : addOnPriority.has(a) ? 200 + addOnPriority.get(a) : 1000 + moduleLevel(a);
-        const bPriority = corePriority.has(b) ? corePriority.get(b) : addOnPriority.has(b) ? 200 + addOnPriority.get(b) : 1000 + moduleLevel(b);
-        return aPriority - bPriority || a.localeCompare(b);
-    });
+    const autoOrder = [...remainingAuto].sort((a, b) => priorityOf(a) - priorityOf(b) || a.localeCompare(b));
     const completed = new Set();
 
     for (const slot of slots) {
@@ -729,6 +912,36 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         }
     }
 
+    // --- School of Computing common-curriculum requirement checks ---
+    let requirementSummary = null;
+    if (computingReq) {
+        const has = (code) => code && planned.has(code);
+        const hasPrefix = (prefix) => [...planned].some((code) => code.startsWith(prefix));
+        const programmingCovered = [...planned].some((code) => /^CS(1010[A-Z]*|1101S)$/.test(code));
+        const pair = computingReq.servicePair;
+        const ceSatisfied = Boolean(pair && has(pair[0]) && has(pair[1]))
+            || [...planned].some((code) => /^GEN2/.test(code) && !/[XY]$/.test(code));
+        const idCdCodes = [...planned].filter((code) => isIdCourse(code) || isCdCourse(code));
+        const idCount = idCdCodes.filter((code) => isIdCourse(code) && !isCdCourse(code)).length;
+        const cdCount = idCdCodes.filter((code) => isCdCourse(code)).length;
+        const idCdUnits = idCdCodes.reduce((sum, code) => sum + moduleCredits(moduleByCode.get(code)), 0);
+
+        const checks = [
+            { key: "digital-literacy", label: "University Pillar · Digital Literacy", satisfied: programmingCovered, detail: "Programming Methodology" },
+            { key: "data-literacy", label: "University Pillar · Data Literacy", satisfied: has(computingReq.pillars.dataLiteracy), detail: computingReq.pillars.dataLiteracy },
+            { key: "critique", label: "University Pillar · Critique & Expression", satisfied: has(computingReq.pillars.critique), detail: computingReq.pillars.critique },
+            { key: "cultures", label: "University Pillar · Cultures & Connections", satisfied: hasPrefix("GEC"), detail: computingReq.pillars.cultures || "GEC course" },
+            { key: "singapore", label: "University Pillar · Singapore Studies", satisfied: hasPrefix("GES"), detail: computingReq.pillars.singapore || "GES course" },
+            { key: "community", label: "University Pillar · Communities & Engagement", satisfied: ceSatisfied, detail: pair ? `${pair[0]} + ${pair[1]}` : "Service Learning" },
+            { key: "ethics", label: "Computing Ethics", satisfied: has(SOC_ETHICS), detail: SOC_ETHICS },
+            { key: "id-cd", label: "Interdisciplinary/Cross-disciplinary (12 units · ≥2 ID · ≤1 CD)", satisfied: idCdUnits >= IDCD_REQUIRED_UNITS && idCount >= IDCD_MIN_ID && cdCount <= IDCD_MAX_CD, detail: `${idCdUnits} units · ${idCount} ID · ${cdCount} CD` },
+        ];
+        for (const check of checks) {
+            if (!check.satisfied) warnings.push(`Graduation requirement not yet met — ${check.label}.`);
+        }
+        requirementSummary = { faculty: major.faculty, checks };
+    }
+
     // --- Output timeline (break slots only when populated or holding the internship) ---
     const timeline = slots
         .filter((slot) => slot.kind === "sem" || slotModules.get(slot.id).length > 0 || slot.id === internshipSlotId)
@@ -785,6 +998,7 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         regularSemesters: activeRegular.map((slot) => ({ id: slot.id, label: slot.label, credits: slotCredits.get(slot.id) })),
         regularTargetTotal,
         graduation: { meetsTarget, scheduledCredits: graduationCredits, targetCredits: totalCredits, missingCore },
+        requirements: requirementSummary,
         recommendations,
         warnings,
     };
