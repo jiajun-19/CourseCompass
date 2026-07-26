@@ -223,6 +223,18 @@ const FIELD_SERVICE_PROJECT = "FSP4003"; // Cross-disciplinary consulting practi
 const BBA_CAPSTONE = { accountancy: "ACC4701", "real-estate": "RE4701" }; // default BSP4701
 const BBA_PILLAR_PREFIX = { data: "GEA", cultures: "GEC", singapore: "GES", critique: "GEX" };
 
+// --- College of Humanities and Sciences (CHS) Common Curriculum ---
+// Shared by CHS FASS and Science majors (Bachelor of Pharmacy is the FoS exception).
+const CHS_FACULTY = "College of Humanities and Sciences";
+const CHS_EXCLUDED_MAJORS = new Set(["pharmaceutical-science"]); // Pharmacy uses a different curriculum
+const CHS_DATA_LITERACY_EXEMPT = new Set(["data-science-analytics", "statistics"]); // gateway fulfils Data Literacy
+const CHS_WRITING = "FAS1101";
+const CHS_DATA_LITERACY = "GEA1000";
+const CHS_DIGITAL_LITERACY = "GEI1001";
+const CHS_DESIGN_THINKING = "DTK1234";
+const CHS_INTEGRATED = { asian: "HSA1000", humanities: "HSH1000", social: "HSS1000", scienceI: "HSI1000" };
+const CHS_AI_COURSES = ["HS1501", "HS1502", "HS1503"];
+
 // Resolves a base course code to a catalogue entry, falling back to the first lettered
 // variant when only variants exist (e.g. ACC1701 -> ACC1701A, BSP4701 -> BSP4701A).
 function resolveCode(base, moduleByCode) {
@@ -777,10 +789,79 @@ function buildBusinessRequirements(major, modules, moduleByCode, totalCredits, b
     return { required, servicePins, servicePair, serviceSlots, computeChecks };
 }
 
+// Builds the CHS Common Curriculum requirement set (Common Core + Integrated +
+// Interdisciplinary courses) shared by CHS FASS and Science majors.
+function buildChsRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices) {
+    const coreSet = new Set(major.core);
+    const required = [];
+    const addReq = (code) => {
+        if (code && moduleByCode.has(code) && !coreSet.has(code) && !required.includes(code)) required.push(code);
+    };
+    const firstAvailable = (list) => list.find((code) => moduleByCode.has(code)) || null;
+
+    const dataExempt = CHS_DATA_LITERACY_EXEMPT.has(major.id);
+    const aiCourse = firstAvailable(CHS_AI_COURSES);
+    const scienceII = modules
+        .filter((module) => /^HSI2/.test(module.moduleCode))
+        .map((module) => module.moduleCode)
+        .sort()[0] || null;
+
+    // Common Core
+    addReq(CHS_WRITING);
+    if (!dataExempt) addReq(CHS_DATA_LITERACY);
+    addReq(CHS_DIGITAL_LITERACY);
+    addReq(CHS_DESIGN_THINKING);
+    addReq(aiCourse);
+    // Integrated courses (each also fulfils a GE pillar)
+    addReq(CHS_INTEGRATED.asian);
+    addReq(CHS_INTEGRATED.humanities);
+    addReq(CHS_INTEGRATED.social);
+    addReq(CHS_INTEGRATED.scienceI);
+    addReq(scienceII);
+
+    // Two Interdisciplinary courses, drawn from the interdisciplinary pool but excluding
+    // the CHS common/integrated courses themselves.
+    const reserved = new Set([CHS_WRITING, CHS_DATA_LITERACY, CHS_DIGITAL_LITERACY, CHS_DESIGN_THINKING, aiCourse, scienceII,
+        CHS_INTEGRATED.asian, CHS_INTEGRATED.humanities, CHS_INTEGRATED.social, CHS_INTEGRATED.scienceI, ...major.core]);
+    const idPicked = [];
+    for (const code of ID_COURSE_LIST) {
+        if (idPicked.length >= 2) break;
+        if (!moduleByCode.has(code) || reserved.has(code) || required.includes(code)) continue;
+        if (/^HS[AHS]\d{4}$/.test(code) || /^HSI/.test(code)) continue; // skip integrated family
+        idPicked.push(code);
+        addReq(code);
+    }
+
+    const { servicePair, servicePins, serviceSlots } = placeServiceLearning(moduleByCode, totalCredits, blockedSemIndices);
+
+    const computeChecks = (planned) => {
+        const has = (code) => code && planned.has(code);
+        const ceSatisfied = Boolean(servicePair && has(servicePair[0]) && has(servicePair[1]))
+            || [...planned].some((code) => /^GEN2/.test(code) && !/[XY]$/.test(code));
+        return [
+            { key: "writing", label: "Common Core · Writing", satisfied: has(CHS_WRITING), detail: CHS_WRITING },
+            { key: "data-literacy", label: "Common Core · Data Literacy", satisfied: dataExempt ? true : has(CHS_DATA_LITERACY), detail: dataExempt ? "Fulfilled by major gateway" : CHS_DATA_LITERACY },
+            { key: "digital-literacy", label: "Common Core · Digital Literacy", satisfied: has(CHS_DIGITAL_LITERACY), detail: CHS_DIGITAL_LITERACY },
+            { key: "design-thinking", label: "Common Core · Design Thinking", satisfied: has(CHS_DESIGN_THINKING), detail: CHS_DESIGN_THINKING },
+            { key: "ai", label: "Common Core · Artificial Intelligence", satisfied: has(aiCourse), detail: aiCourse || "HS15xx" },
+            { key: "community", label: "Common Core · Communities & Engagement", satisfied: ceSatisfied, detail: servicePair ? `${servicePair[0]} + ${servicePair[1]}` : "Service Learning" },
+            { key: "asian", label: "Integrated · Asian Studies (Cultures & Connections)", satisfied: has(CHS_INTEGRATED.asian), detail: CHS_INTEGRATED.asian },
+            { key: "humanities", label: "Integrated · Humanities (Critique & Expression)", satisfied: has(CHS_INTEGRATED.humanities), detail: CHS_INTEGRATED.humanities },
+            { key: "social", label: "Integrated · Social Sciences (Singapore Studies)", satisfied: has(CHS_INTEGRATED.social), detail: CHS_INTEGRATED.social },
+            { key: "science-1", label: "Integrated · Scientific Inquiry I", satisfied: has(CHS_INTEGRATED.scienceI), detail: CHS_INTEGRATED.scienceI },
+            { key: "science-2", label: "Integrated · Scientific Inquiry II", satisfied: has(scienceII), detail: scienceII || "HSI2xxx" },
+            { key: "interdisciplinary", label: "Interdisciplinary Courses (2)", satisfied: idPicked.length >= 2 && idPicked.every(has), detail: idPicked.join(", ") || "2 courses" },
+        ];
+    };
+
+    return { required, servicePins, servicePair, serviceSlots, computeChecks };
+}
+
 // Returns the graduation-requirement builder for the major's faculty, or null.
 function buildFacultyRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices) {
     if (SOC_MAJOR_IDS.has(major.id)) return buildComputingRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
     if (major.faculty === BUSINESS_FACULTY) return buildBusinessRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
+    if (major.faculty === CHS_FACULTY && !CHS_EXCLUDED_MAJORS.has(major.id)) return buildChsRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
     return null;
 }
 
