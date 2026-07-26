@@ -124,12 +124,15 @@ function App() {
   const [error, setError] = useState('');
 
   const [selectedModule, setSelectedModule] = useState(null);
+  const [moveTarget, setMoveTarget] = useState('');
   const [adder, setAdder] = useState({ open: false, query: '', results: [], slot: '', busy: false });
 
   useEffect(() => {
     getJson('/api/majors').then((data) => setMajors(data.majors)).catch(() => setMajors(FALLBACK_MAJORS));
     getJson('/api/modules/stats').then(setModuleStats).catch(() => setModuleStats(null));
   }, []);
+
+  useEffect(() => { setMoveTarget(''); }, [selectedModule]);
 
   useEffect(() => {
     if (majors.length && !majors.some((item) => item.id === major)) {
@@ -279,6 +282,28 @@ function App() {
     }
     if (removes.includes(code)) return;
     await applyEdit({ targets, adds, removes: [...removes, code] });
+  }
+
+  // Moves a module to another semester or break by pinning it there. Works for required
+  // modules that cannot be removed. Keeps the regular total consistent when the module
+  // crosses between a regular semester and a Special Term break.
+  async function moveModule(code, slot) {
+    setSelectedModule(null);
+    setMoveTarget('');
+    if (!plan || !slot) return;
+    const currentSlot = plan.timeline.find((item) => item.modules.includes(code))?.id;
+    if (currentSlot === slot) return;
+    const credits = Number((plan.modules || []).find((item) => item.moduleCode === code)?.modularCredits || 4);
+    const wasBreak = currentSlot ? isBreakSlot(currentSlot) : false;
+    const nowBreak = isBreakSlot(slot);
+    let nextTargets = targets;
+    if (wasBreak !== nowBreak) {
+      const delta = nowBreak ? -credits : credits;
+      const ids = plan.regularSemesters.map((item) => item.id);
+      nextTargets = distributeTargets(plan.regularTargetTotal + delta, targets, locked, ids);
+    }
+    const nextAdds = [...adds.filter((item) => item.code !== code), { code, slot }];
+    await applyEdit({ targets: nextTargets, adds: nextAdds, removes });
   }
 
   async function searchModules(query) {
@@ -540,6 +565,19 @@ function App() {
                   : `${plan.graduation.scheduledCredits} / ${plan.graduation.targetCredits} Units planned.`}</p>
               </div>
             )}
+            {plan?.requirements && (
+              <div className="req-panel">
+                <div className="req-title"><b>{plan.requirements.faculty}</b><span>Graduation requirement checklist</span></div>
+                <div className="req-grid">
+                  {plan.requirements.checks.map((check) => (
+                    <div className={`req-item ${check.satisfied ? 'ok' : 'miss'}`} key={check.key}>
+                      <i>{check.satisfied ? '✓' : '!'}</i>
+                      <div><b>{check.label}</b><small>{check.detail}</small></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="roadmap-grid">
               <div className="timeline">
@@ -614,6 +652,17 @@ function App() {
             <p>{selectedModule.description || 'No description is currently available.'}</p>
             <h3>Prerequisites</h3>
             <p>{selectedModule.prerequisiteText || 'No formal prerequisites listed.'}</p>
+            {selectedModule.inPlan && (
+              <div className="move-row">
+                <div className="select-field slim"><i>📍</i>
+                  <select aria-label="Move to semester" value={moveTarget} onChange={(event) => setMoveTarget(event.target.value)}>
+                    <option value="">Move to semester / break…</option>
+                    {addSlotOptions.map((slot) => <option key={slot.id} value={slot.id}>{slot.label}</option>)}
+                  </select>
+                </div>
+                <button type="button" className="move-btn" disabled={loading || !moveTarget} onClick={() => moveModule(selectedModule.moduleCode, moveTarget)}>Move</button>
+              </div>
+            )}
             <div className="modal-actions">
               {selectedModule.inPlan ? (
                 <button type="button" className="danger" onClick={() => removeModule(selectedModule.moduleCode)} disabled={loading}>Remove from plan</button>

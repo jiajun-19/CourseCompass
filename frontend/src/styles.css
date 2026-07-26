@@ -92,6 +92,17 @@ main { grid-column:2; min-width:0; }
 .intern-card{display:flex;align-items:center;gap:11px}.intern-card>span{display:grid;place-items:center;width:38px;height:38px;border-radius:10px;background:#e3edff;color:var(--blue)}.intern-card b,.intern-card small{display:block}.intern-card b{font-size:10px;color:#2461b8}.intern-card small{margin-top:3px;color:#788196;font-size:8px}
 .slot-empty{align-self:center;color:#9aa3af;font-size:9px;font-style:italic}
 .module-card.added{border-color:#9ad3b2;background:#f0fbf4}.module-card.added::after{content:'added';display:block;margin-top:3px;color:#1d9a5c;font-size:6.5px;font-weight:700}
+.req-panel{margin-bottom:16px;padding:16px 18px;border:1px solid #d9eae6;border-radius:13px;background:#fff;box-shadow:0 8px 22px rgba(8,64,65,.05)}
+.req-title{display:flex;align-items:baseline;gap:9px;margin-bottom:12px}.req-title b{font:800 12px Manrope;color:#0c1942}.req-title span{font-size:9px;color:#8a93a2}
+.req-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.req-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid #e6efed;border-radius:9px;background:#fbfdfd}
+.req-item i{display:grid;place-items:center;width:18px;height:18px;flex:none;border-radius:50%;font-style:normal;font-size:10px;font-weight:800;color:#fff}
+.req-item.ok i{background:#2aa779}.req-item.miss i{background:var(--amber);color:#3a2c05}
+.req-item.miss{border-color:#ffe1ad;background:#fff8ec}
+.req-item b{display:block;font-size:9.5px;color:#25314c}.req-item small{display:block;margin-top:2px;font-size:8px;color:#8a93a2}
+.move-row{display:flex;align-items:center;gap:10px;margin-top:18px}.move-row .select-field{flex:1}
+.move-btn{height:42px;padding:0 20px;border:1px solid #bfe0d9;border-radius:9px;background:#eefaf7;color:#0a716b;font-size:11px;font-weight:700}
+.move-btn:hover:not(:disabled){background:#e0f4ef}.move-btn:disabled{opacity:.5;cursor:not-allowed}
 .modal-actions{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:22px}
 .modal-actions a{margin-top:0}
 .danger{padding:9px 16px;border:1px solid #f3c2bf;border-radius:9px;background:#fff2f1;color:#c6433d;font-size:10px;font-weight:700}.danger:hover:not(:disabled){background:#ffe7e5}.danger:disabled{opacity:.5;cursor:not-allowed}
