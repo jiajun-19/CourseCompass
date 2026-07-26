@@ -33,18 +33,24 @@ const GRAD_TARGETS = [
 ];
 
 const INTERNSHIP_UNITS = [4, 8, 10, 12];
-const ADD_ON_OPTIONS = [
-  { value: 'none', label: 'No minor or second major' },
-  { value: 'fintechMinor', label: 'Minor in Financial Technology' },
-  { value: 'statsMinor', label: 'Minor in Statistics' },
-  { value: 'managementSecondMajor', label: 'Second Major in Management' },
-];
 const INTEREST_OPTIONS = [
+  { value: 'broad', label: 'Broad exploratory electives' },
   { value: 'ai', label: 'AI and machine learning' },
-  { value: 'data', label: 'Data analytics' },
-  { value: 'software', label: 'Software systems' },
-  { value: 'security', label: 'Cybersecurity' },
-  { value: 'product', label: 'Product and business' },
+  { value: 'data', label: 'Data analytics and statistics' },
+  { value: 'software', label: 'Software and systems' },
+  { value: 'security', label: 'Cybersecurity and privacy' },
+  { value: 'product', label: 'Product, business and entrepreneurship' },
+  { value: 'finance', label: 'Finance, accounting and economics' },
+  { value: 'healthcare', label: 'Healthcare, medicine and nursing' },
+  { value: 'lifeScience', label: 'Life sciences and biology' },
+  { value: 'engineering', label: 'Engineering and applied technology' },
+  { value: 'builtEnvironment', label: 'Architecture and built environment' },
+  { value: 'sustainability', label: 'Sustainability and environment' },
+  { value: 'socialScience', label: 'Psychology and social sciences' },
+  { value: 'humanities', label: 'Humanities, history and languages' },
+  { value: 'mediaDesign', label: 'Media, communications and design' },
+  { value: 'lawGovernance', label: 'Law, governance and public policy' },
+  { value: 'education', label: 'Education and teaching' },
 ];
 const CATEGORY_LABELS = {
   core: 'Core',
@@ -101,8 +107,9 @@ function App() {
   const [exchangeSemester, setExchangeSemester] = useState(SAVED.exchangeSemester ?? 0);
   const [internshipSlot, setInternshipSlot] = useState(SAVED.internshipSlot ?? '');
   const [internshipUnits, setInternshipUnits] = useState(SAVED.internshipUnits ?? 10);
-  const [addOn, setAddOn] = useState(SAVED.addOn ?? 'none');
-  const [interestArea, setInterestArea] = useState(SAVED.interestArea ?? 'ai');
+  const [minor, setMinor] = useState(SAVED.minor ?? 'none');
+  const [secondMajor, setSecondMajor] = useState(SAVED.secondMajor ?? 'none');
+  const [interestArea, setInterestArea] = useState(SAVED.interestArea ?? 'broad');
 
   // Applied state that produced the current plan.
   const [committed, setCommitted] = useState(SAVED.committed ?? null);
@@ -124,15 +131,23 @@ function App() {
     getJson('/api/modules/stats').then(setModuleStats).catch(() => setModuleStats(null));
   }, []);
 
+  useEffect(() => {
+    if (majors.length && !majors.some((item) => item.id === major)) {
+      setMajor('computer-science');
+    }
+    if (minor !== 'none' && !majors.some((item) => item.id === minor)) setMinor('none');
+    if (secondMajor !== 'none' && !majors.some((item) => item.id === secondMajor)) setSecondMajor('none');
+  }, [majors, major, minor, secondMajor]);
+
   // Save the current selections and roadmap so the page restores on the next visit.
   useEffect(() => {
-    const snapshot = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, addOn, interestArea, committed, targets, locked, adds, removes, plan };
+    const snapshot = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, minor, secondMajor, interestArea, committed, targets, locked, adds, removes, plan };
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     } catch {
       /* ignore storage write failures (e.g. private mode) */
     }
-  }, [major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, addOn, interestArea, committed, targets, locked, adds, removes, plan]);
+  }, [major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, minor, secondMajor, interestArea, committed, targets, locked, adds, removes, plan]);
 
   function buildBody(base, overrides) {
     const internship = base.internshipSlot ? { slot: base.internshipSlot, units: base.internshipUnits } : null;
@@ -141,7 +156,8 @@ function App() {
       totalCredits: base.totalCredits,
       exchangeSemester: base.exchangeSemester,
       internship,
-      addOn: base.addOn,
+      minor: base.minor,
+      secondMajor: base.secondMajor,
       interestArea: base.interestArea,
       semesterTargets: overrides.targets && Object.keys(overrides.targets).length ? overrides.targets : null,
       addModules: overrides.adds || [],
@@ -153,7 +169,7 @@ function App() {
   async function generate() {
     setLoading(true);
     setError('');
-    const base = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, addOn, interestArea };
+    const base = { major, totalCredits, exchangeSemester, internshipSlot, internshipUnits, minor, secondMajor, interestArea };
     try {
       const result = await postJson('/api/plans/generate', buildBody(base, { targets: null, adds: [], removes: [] }));
       if (!result.ok) {
@@ -310,6 +326,14 @@ function App() {
     return groups;
   }, {}), [majors]);
 
+  function renderProgrammeOptions() {
+    return Object.entries(majorGroups).map(([faculty, programmes]) => (
+      <optgroup key={faculty} label={faculty}>
+        {programmes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </optgroup>
+    ));
+  }
+
   const stats = useMemo(() => {
     if (!plan) return { modules: 0, credits: 0, categories: {} };
     const moduleCount = plan.timeline.reduce((sum, slot) => sum + slot.modules.length, 0);
@@ -320,6 +344,16 @@ function App() {
     }, {});
     return { modules: moduleCount, credits: plan.scheduledCredits, categories };
   }, [plan]);
+
+  const addOnLabel = useMemo(() => {
+    if (plan?.addOn?.name) return plan.addOn.name;
+    const labels = [];
+    const selectedSecondMajor = majors.find((item) => item.id === secondMajor);
+    const selectedMinor = majors.find((item) => item.id === minor);
+    if (selectedSecondMajor) labels.push(`Second Major in ${selectedSecondMajor.name}`);
+    if (selectedMinor) labels.push(`Minor in ${selectedMinor.name}`);
+    return labels.join(' · ') || 'No minor or second major';
+  }, [majors, minor, plan, secondMajor]);
 
   return (
     <div className="app-shell">
@@ -343,11 +377,7 @@ function App() {
             <div className="controls">
               <label><span>Your major</span><div className="select-field"><i>⌘</i>
                 <select aria-label="Your major" value={major} onChange={(event) => setMajor(event.target.value)}>
-                  {Object.entries(majorGroups).map(([faculty, programmes]) => (
-                    <optgroup key={faculty} label={faculty}>
-                      {programmes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                    </optgroup>
-                  ))}
+                  {renderProgrammeOptions()}
                 </select>
               </div></label>
 
@@ -360,9 +390,17 @@ function App() {
                 </select>
               </div></label>
 
-              <label><span>Minor or second major</span><div className="select-field"><i>＋</i>
-                <select aria-label="Minor or second major" value={addOn} onChange={(event) => setAddOn(event.target.value)}>
-                  {ADD_ON_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              <label><span>Second major</span><div className="select-field"><i>＋</i>
+                <select aria-label="Second major" value={secondMajor} onChange={(event) => setSecondMajor(event.target.value)}>
+                  <option value="none">No second major</option>
+                  {renderProgrammeOptions()}
+                </select>
+              </div></label>
+
+              <label><span>Minor</span><div className="select-field"><i>◇</i>
+                <select aria-label="Minor" value={minor} onChange={(event) => setMinor(event.target.value)}>
+                  <option value="none">No minor</option>
+                  {renderProgrammeOptions()}
                 </select>
               </div></label>
 
@@ -456,7 +494,7 @@ function App() {
 
           <section className="roadmap-section" id="roadmap">
             <div className="roadmap-heading">
-              <div className="panel-heading"><span>{plan ? '03' : '02'}</span><div><h2>Your recommended plan</h2><p>{plan?.major.name || majors.find((item) => item.id === major)?.name} · {plan?.addOn?.name || ADD_ON_OPTIONS.find((item) => item.value === addOn)?.label} · 4 years</p></div></div>
+              <div className="panel-heading"><span>{plan ? '03' : '02'}</span><div><h2>Your recommended plan</h2><p>{plan?.major.name || majors.find((item) => item.id === major)?.name} · {addOnLabel} · 4 years</p></div></div>
               <div className="roadmap-tools">
                 {plan && <button type="button" className="add-toggle" onClick={() => setAdder((state) => ({ ...state, open: !state.open }))}>{adder.open ? 'Close' : '+ Add module'}</button>}
                 <div className="legend" aria-label="Module categories">
@@ -551,7 +589,7 @@ function App() {
 
             {plan?.recommendations?.length > 0 && (
               <section className="recommend-panel">
-                <div className="panel-heading"><span>04</span><div><h2>Recommended electives</h2><p>Based on {INTEREST_OPTIONS.find((item) => item.value === plan.interestArea)?.label.toLowerCase()} and available semesters.</p></div></div>
+                <div className="panel-heading"><span>04</span><div><h2>Recommended electives</h2><p>{INTEREST_OPTIONS.find((item) => item.value === plan.interestArea)?.label || 'Broad exploratory electives'} that fit available semesters and prerequisite constraints.</p></div></div>
                 <div className="recommend-grid">
                   {plan.recommendations.map((module) => (
                     <button type="button" className={`recommend-card ${module.blocked ? 'blocked' : ''}`} key={module.moduleCode} onClick={() => setSelectedModule(module)}>

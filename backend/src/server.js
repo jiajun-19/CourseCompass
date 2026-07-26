@@ -77,45 +77,30 @@ const GENERIC_MAJORS = [
     ["landscape-architecture", "Landscape Architecture", "College of Design and Engineering", ["LA"]],
     ["materials-science-engineering", "Materials Science & Engineering", "College of Design and Engineering", ["MLE"]],
     ["mechanical-engineering", "Mechanical Engineering", "College of Design and Engineering", ["ME"]],
-    ["law", "Law", "Faculty of Law", ["LAW"]],
-    ["medicine", "Medicine", "Yong Loo Lin School of Medicine", ["MD"]],
-    ["nursing", "Nursing", "Yong Loo Lin School of Medicine", ["NUR"]],
-    ["dentistry", "Dentistry", "Faculty of Dentistry", ["DEN"]],
-    ["public-health", "Public Health", "Saw Swee Hock School of Public Health", ["SPH"]],
 ].map(([id, name, faculty, prefixes]) => ({ id, name, faculty, prefixes, core: [] }));
 
 const MAJORS = [...CURATED_MAJORS, ...GENERIC_MAJORS]
     .sort((a, b) => a.faculty.localeCompare(b.faculty) || a.name.localeCompare(b.name));
 
 const COMMON_MODULES = ["GEA1000", "ES2660", "CFG1002", "GEC1015", "GEN2001"];
-const ADD_ONS = {
-    none: { id: "none", name: "No minor or second major", type: "none", required: [] },
-    fintechMinor: {
-        id: "fintechMinor",
-        name: "Minor in Financial Technology",
-        type: "minor",
-        required: ["FIN2704", "IS4228", "BT4013", "CS3244", "TR3002"],
-    },
-    statsMinor: {
-        id: "statsMinor",
-        name: "Minor in Statistics",
-        type: "minor",
-        required: ["ST2131", "ST2132", "ST3131", "ST3248", "ST3236"],
-    },
-    managementSecondMajor: {
-        id: "managementSecondMajor",
-        name: "Second Major in Management",
-        type: "secondMajor",
-        required: ["MGT1701", "MKT1705", "ACC1701", "DAO2702", "MNO2705", "BSP3701", "MKT3717", "DBA3701"],
-    },
-};
-
 const INTEREST_AREAS = {
+    broad: ["introduction", "general", "society", "communication", "thinking", "reasoning", "world", "culture"],
     ai: ["artificial intelligence", "machine learning", "deep learning", "natural language", "computer vision", "neural"],
-    data: ["data", "analytics", "statistics", "statistical", "database", "mining", "visualisation", "optimization", "optimisation"],
+    data: ["data", "analytics", "statistics", "statistical", "database", "mining", "visualisation", "visualization", "optimization", "optimisation"],
     software: ["software", "systems", "programming", "architecture", "distributed", "parallel", "cloud"],
     security: ["security", "privacy", "cryptography", "risk", "fraud", "forensics"],
     product: ["product", "management", "marketing", "entrepreneurship", "innovation", "business", "strategy"],
+    finance: ["finance", "financial", "investment", "banking", "capital", "accounting", "economics", "market"],
+    healthcare: ["health", "healthcare", "medicine", "medical", "nursing", "patient", "clinical", "public health", "pharmaceutical"],
+    lifeScience: ["biology", "biological", "life science", "biochemistry", "genetics", "molecular", "ecology", "physiology"],
+    engineering: ["engineering", "design", "mechanics", "materials", "electrical", "electronics", "manufacturing", "systems"],
+    builtEnvironment: ["architecture", "urban", "real estate", "landscape", "planning", "building", "environment"],
+    sustainability: ["sustainability", "sustainable", "environment", "climate", "energy", "ecology", "conservation"],
+    socialScience: ["psychology", "sociology", "political", "policy", "social", "society", "behaviour", "behavior"],
+    humanities: ["history", "philosophy", "literature", "language", "linguistics", "culture", "religion", "ethics"],
+    mediaDesign: ["media", "communications", "design", "visual", "interaction", "digital", "storytelling", "creative"],
+    lawGovernance: ["law", "legal", "governance", "regulation", "policy", "public", "justice"],
+    education: ["education", "teaching", "learning", "pedagogy", "curriculum", "student"],
 };
 
 function moduleLevel(code) {
@@ -133,8 +118,8 @@ function moduleFamily(code) {
     return match ? match[1] : code;
 }
 
-function moduleCategory(code, major, addOnCodes, addOnType) {
-    if (addOnCodes.has(code)) return addOnType === "secondMajor" ? "specialisation" : "minor";
+function moduleCategory(code, major, addOnCategoryByCode) {
+    if (addOnCategoryByCode.has(code)) return addOnCategoryByCode.get(code);
     if (major.core.includes(code)) return "core";
     if (major.prefixes.some((prefix) => code.startsWith(prefix)) && moduleLevel(code) >= 3) return "specialisation";
     return "elective";
@@ -148,18 +133,48 @@ function recommendationScore(module, terms, major) {
     return termScore + prefixScore + levelScore;
 }
 
-function recommendElectives(modules, major, planned, completed, slotCredits, activeRegular, prereqEdges, interestArea) {
-    const terms = INTEREST_AREAS[interestArea] || INTEREST_AREAS.ai;
+function prereqStrictlySatisfied(tree, completedBefore) {
+    if (!tree) return true;
+    if (typeof tree === "string") {
+        const code = prereqLeafCode(tree);
+        return code ? completedBefore.has(code) : true;
+    }
+    if (Array.isArray(tree)) return tree.every((item) => prereqStrictlySatisfied(item, completedBefore));
+    if (typeof tree === "object") {
+        if (Array.isArray(tree.and)) return tree.and.every((item) => prereqStrictlySatisfied(item, completedBefore));
+        if (Array.isArray(tree.or)) return tree.or.some((item) => prereqStrictlySatisfied(item, completedBefore));
+        if (Array.isArray(tree.nOf)) {
+            const [count, items] = tree.nOf;
+            return items.filter((item) => prereqStrictlySatisfied(item, completedBefore)).length >= count;
+        }
+    }
+    return true;
+}
+
+function recommendElectives(modules, major, planned, slotCredits, slots, activeRegular, slotModules, prereqEdges, prereqTreeByCode, interestArea) {
+    const terms = INTEREST_AREAS[interestArea] || INTEREST_AREAS.broad;
     const plannedFamilies = new Set([...planned].map(moduleFamily));
+    const completedBeforeBySlot = new Map();
+    const completed = new Set();
+    for (const slot of slots) {
+        completedBeforeBySlot.set(slot.id, new Set(completed));
+        for (const code of slotModules.get(slot.id) || []) completed.add(code);
+    }
     return modules
         .filter((module) => !planned.has(module.moduleCode))
         .filter((module) => !plannedFamilies.has(moduleFamily(module.moduleCode)))
         .filter((module) => !isNonstandardRecommendation(module))
         .map((module) => {
             const score = recommendationScore(module, terms, major);
-            const edges = prereqEdges.get(module.moduleCode);
-            const unmet = edges ? [...edges].filter((code) => planned.has(code) && !completed.has(code)) : [];
-            const fitSlot = activeRegular.find((slot) => slotCredits.get(slot.id) + moduleCredits(module) <= 24);
+            const fitSlot = activeRegular.find((slot) => {
+                const offered = !module.semesters?.length || module.semesters.includes(slot.offeredIn);
+                if (!offered || slotCredits.get(slot.id) + moduleCredits(module) > 24) return false;
+                const completedBefore = completedBeforeBySlot.get(slot.id) || new Set();
+                const tree = prereqTreeByCode.get(module.moduleCode);
+                if (tree) return prereqStrictlySatisfied(tree, completedBefore);
+                const edges = prereqEdges.get(module.moduleCode);
+                return !edges || [...edges].every((code) => completedBefore.has(code));
+            });
             return {
                 moduleCode: module.moduleCode,
                 title: module.title,
@@ -167,14 +182,14 @@ function recommendElectives(modules, major, planned, completed, slotCredits, act
                 category: "elective",
                 score,
                 fitSlot: fitSlot ? fitSlot.id : null,
-                label: unmet.length ? `Needs ${unmet.join(", ")}` : fitSlot ? `Fits ${fitSlot.id}` : "No light semester available",
-                blocked: unmet.length > 0 || !fitSlot,
+                label: fitSlot ? `Fits ${fitSlot.id}` : "No eligible semester",
+                blocked: !fitSlot,
                 prerequisiteText: module.prerequisiteText || "",
                 nusmodsUrl: module.nusmodsUrl,
             };
         })
-        .filter((item) => item.score > 0)
-        .sort((a, b) => Number(a.blocked) - Number(b.blocked) || b.score - a.score || a.moduleCode.localeCompare(b.moduleCode))
+        .filter((item) => item.score > 0 && !item.blocked)
+        .sort((a, b) => b.score - a.score || a.moduleCode.localeCompare(b.moduleCode))
         .slice(0, 6);
 }
 
@@ -195,6 +210,47 @@ function limitedElectiveCategory(module) {
     const prefix = module.moduleCode.match(/^[A-Z]+/)?.[0] || "";
     if (/^lab(?:oratory)? in /i.test(module.title || "")) return `${prefix}:laboratory-elective`;
     return null;
+}
+
+function selectRequirementModules(programme, modules, moduleByCode, requiredCount) {
+    const selected = [];
+    const seenFamilies = new Set();
+    const seenTitles = new Set();
+
+    function include(code, allowNonstandard = false) {
+        if (!moduleByCode.has(code) || selected.includes(code) || selected.length >= requiredCount) return;
+        const module = moduleByCode.get(code);
+        if (!allowNonstandard && isNonstandardRecommendation(module)) return;
+        const family = moduleFamily(code);
+        const title = normalizedTitle(module.title);
+        if (seenFamilies.has(family) || (title && seenTitles.has(title))) return;
+        selected.push(code);
+        seenFamilies.add(family);
+        if (title) seenTitles.add(title);
+    }
+
+    programme.core.forEach((code) => include(code, true));
+    modules
+        .filter((module) => programme.prefixes.some((prefix) => module.moduleCode.startsWith(prefix)))
+        .sort((a, b) => moduleLevel(a.moduleCode) - moduleLevel(b.moduleCode) || a.moduleCode.localeCompare(b.moduleCode))
+        .forEach((module) => include(module.moduleCode));
+
+    return selected;
+}
+
+function buildAddOnSelection(id, type, primaryMajor, modules, moduleByCode) {
+    if (!id || id === "none" || id === primaryMajor.id) return null;
+    const programme = MAJORS.find((item) => item.id === id);
+    if (!programme) return null;
+    const requiredCount = type === "secondMajor" ? 10 : 5;
+    const required = selectRequirementModules(programme, modules, moduleByCode, requiredCount);
+    return {
+        id: programme.id,
+        name: programme.name,
+        type,
+        required,
+        targetUnits: requiredCount * 4,
+    };
 }
 
 const SEM_LABELS = ["Y1S1", "Y1S2", "Y2S1", "Y2S2", "Y3S1", "Y3S2", "Y4S1", "Y4S2"];
@@ -302,10 +358,11 @@ function prereqAddStatus(tree, completedBefore, planned) {
 // Deterministic rule-based module selection for a major up to the local module budget.
 // Independent of the student's manual edits so the base plan is stable across requests.
 // Codes in excludeCodes are skipped (e.g. modules the student has pinned manually).
-function selectBaseModules(major, modules, moduleByCode, localModuleCredits, excludeCodes = new Set()) {
+function selectBaseModules(major, modules, moduleByCode, localModuleCredits, excludeCodes = new Set(), interestArea = "broad") {
     const candidates = modules
         .filter((module) => major.prefixes.some((prefix) => module.moduleCode.startsWith(prefix)))
         .sort((a, b) => moduleLevel(a.moduleCode) - moduleLevel(b.moduleCode) || a.moduleCode.localeCompare(b.moduleCode));
+    const terms = INTEREST_AREAS[interestArea] || INTEREST_AREAS.broad;
     const selected = new Set();
     const selectedFamilies = new Set();
     const selectedTitles = new Set();
@@ -332,6 +389,21 @@ function selectBaseModules(major, modules, moduleByCode, localModuleCredits, exc
 
     major.core.forEach((code) => includeModule(code, true));
     COMMON_MODULES.forEach((code) => includeModule(code));
+
+    const includeInterestModules = () => {
+        const ranked = modules
+            .filter((module) => moduleLevel(module.moduleCode) <= 4)
+            .map((module) => ({ module, score: recommendationScore(module, terms, major) }))
+            .filter((item) => item.score > 0)
+            .sort((a, b) => b.score - a.score || moduleLevel(a.module.moduleCode) - moduleLevel(b.module.moduleCode) || a.module.moduleCode.localeCompare(b.module.moduleCode));
+        for (const { module } of ranked) {
+            if (credits >= localModuleCredits) break;
+            includeModule(module.moduleCode);
+        }
+    };
+
+    if (major.core.length > 0) includeInterestModules();
+
     for (const module of candidates) {
         if (credits >= localModuleCredits) break;
         // NUS offers several mutually exclusive introductory programming variants.
@@ -339,6 +411,7 @@ function selectBaseModules(major, modules, moduleByCode, localModuleCredits, exc
         if (/^CS(?:1010[A-Z]*|1101S|1231)$/.test(module.moduleCode)) continue;
         includeModule(module.moduleCode);
     }
+    if (major.core.length === 0) includeInterestModules();
     for (const module of modules) {
         if (credits >= localModuleCredits) break;
         if (/^(GE|CFG|ES)/.test(module.moduleCode) && moduleLevel(module.moduleCode) <= 2) {
@@ -372,12 +445,23 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     const exchangeSemester = Number(options.exchangeSemester || 0);
     const exchangeCredits = exchangeSemester ? 20 : 0;
     const exchangeSlotId = exchangeSemester ? SEM_LABELS[exchangeSemester - 1] : null;
-    const addOn = ADD_ONS[options.addOn] || ADD_ONS.none;
-    const interestArea = INTEREST_AREAS[options.interestArea] ? options.interestArea : "ai";
-    const addOnCodes = new Set(addOn.required.filter((code) => moduleByCode.has(code)));
-    const missingAddOnCodes = addOn.required.filter((code) => !moduleByCode.has(code));
-    if (missingAddOnCodes.length) {
-        warnings.push(`${addOn.name} has catalogue gaps and skipped: ${missingAddOnCodes.join(", ")}.`);
+    const interestArea = INTEREST_AREAS[options.interestArea] ? options.interestArea : "broad";
+    const minor = buildAddOnSelection(options.minor, "minor", major, modules, moduleByCode);
+    const secondMajor = buildAddOnSelection(options.secondMajor, "secondMajor", major, modules, moduleByCode);
+    const addOns = [minor, secondMajor].filter(Boolean);
+    const addOnCodes = new Set(addOns.flatMap((item) => item.required));
+    const addOnCategoryByCode = new Map();
+    if (minor && minor.required.length === 0) warnings.push(`No catalogue-backed modules were found for the ${minor.name} minor.`);
+    if (secondMajor && secondMajor.required.length === 0) warnings.push(`No catalogue-backed modules were found for the ${secondMajor.name} second major.`);
+    if (minor && secondMajor && minor.id === secondMajor.id) {
+        warnings.push(`${minor.name} was selected as both a minor and second major. Shared modules are planned once.`);
+    }
+    if ((options.minor && options.minor === major.id) || (options.secondMajor && options.secondMajor === major.id)) {
+        warnings.push("Selections matching your primary major were ignored.");
+    }
+    for (const code of secondMajor?.required || []) addOnCategoryByCode.set(code, "specialisation");
+    for (const code of minor?.required || []) {
+        if (!addOnCategoryByCode.has(code)) addOnCategoryByCode.set(code, "minor");
     }
 
     const slots = buildTimelineSlots();
@@ -448,16 +532,19 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         pinnedCredits += credits;
         if (slotById.get(slotId).kind !== "sem") breakPinnedCredits += credits;
     }
-    const addOnCredits = [...addOnCodes].reduce((sum, code) => sum + moduleCredits(moduleByCode.get(code)), 0);
-    const autoBudget = Math.max(localModuleCredits - pinnedCredits - addOnCredits, 0);
     const pinnedCodes = new Set(pinSlot.keys());
+    const primaryRequirementCodes = new Set([...major.core, ...COMMON_MODULES].filter((code) => moduleByCode.has(code)));
+    const extraAddOnCodes = new Set([...addOnCodes].filter((code) => !primaryRequirementCodes.has(code) && !pinnedCodes.has(code)));
+    const addOnCredits = [...extraAddOnCodes].reduce((sum, code) => sum + moduleCredits(moduleByCode.get(code)), 0);
+    const autoBudget = Math.max(localModuleCredits - pinnedCredits - addOnCredits, 0);
 
     // --- Module set: deterministic base (excluding pinned), then apply removals ---
-    const baseSelected = selectBaseModules(major, modules, moduleByCode, autoBudget, new Set([...pinnedCodes, ...addOnCodes]));
+    const baseSelected = selectBaseModules(major, modules, moduleByCode, autoBudget, new Set([...pinnedCodes, ...extraAddOnCodes]), interestArea);
     const planned = new Set([...baseSelected].filter((code) => !removeSet.has(code)));
     for (const code of addOnCodes) {
         if (removeSet.has(code)) {
-            errors.push(`${code} is required for ${addOn.name}, so it can't be removed while that option is selected.`);
+            const source = secondMajor?.required.includes(code) ? secondMajor.name : minor?.name;
+            errors.push(`${code} is required for ${source}, so it can't be removed while that option is selected.`);
         } else {
             planned.add(code);
         }
@@ -668,16 +755,23 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         for (const code of slotModules.get(slot.id)) {
             allModules.push({
                 ...moduleByCode.get(code),
-                category: moduleCategory(code, major, addOnCodes, addOn.type),
+                category: moduleCategory(code, major, addOnCategoryByCode),
             });
         }
     }
-    const recommendations = recommendElectives(modules, major, planned, completed, slotCredits, activeRegular, prereqEdges, interestArea);
+    const recommendations = recommendElectives(modules, major, planned, slotCredits, slots, activeRegular, slotModules, prereqEdges, prereqTreeByCode, interestArea);
 
     return {
         ok: true,
         major: { id: major.id, name: major.name, faculty: major.faculty },
-        addOn: { id: addOn.id, name: addOn.name, type: addOn.type, required: [...addOnCodes] },
+        addOn: {
+            id: addOns.map((item) => item.id).join("+") || "none",
+            name: addOns.map((item) => `${item.type === "minor" ? "Minor" : "Second Major"} in ${item.name}`).join(" · ") || "No minor or second major",
+            type: addOns.length === 2 ? "combined" : addOns[0]?.type || "none",
+            required: [...addOnCodes],
+        },
+        minor: minor ? { id: minor.id, name: minor.name, required: minor.required, targetUnits: minor.targetUnits } : null,
+        secondMajor: secondMajor ? { id: secondMajor.id, name: secondMajor.name, required: secondMajor.required, targetUnits: secondMajor.targetUnits } : null,
         interestArea,
         totalCredits,
         scheduledCredits: graduationCredits,
@@ -839,8 +933,9 @@ app.post("/api/plans/generate", async (req, res) => {
         exchangeSemester,
         totalCredits: Number(req.body.totalCredits || 160),
         internship: req.body.internship || null,
-        addOn: req.body.addOn || "none",
-        interestArea: req.body.interestArea || "ai",
+        minor: req.body.minor || "none",
+        secondMajor: req.body.secondMajor || "none",
+        interestArea: req.body.interestArea || "broad",
         semesterTargets: req.body.semesterTargets || null,
         addModules: Array.isArray(req.body.addModules) ? req.body.addModules : [],
         removeModules: Array.isArray(req.body.removeModules) ? req.body.removeModules : [],
