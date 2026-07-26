@@ -235,6 +235,14 @@ const CHS_DESIGN_THINKING = "DTK1234";
 const CHS_INTEGRATED = { asian: "HSA1000", humanities: "HSH1000", social: "HSS1000", scienceI: "HSI1000" };
 const CHS_AI_COURSES = ["HS1501", "HS1502", "HS1503"];
 
+// --- College of Design and Engineering (CDE) common curriculum ---
+const CDE_FACULTY = "College of Design and Engineering";
+const CDE_DESIGN_MAJORS = new Set(["architecture", "industrial-design", "landscape-architecture"]); // not B.Eng
+const CDE_DIGITAL_LITERACY = "GEI1001";
+const CDE_COMMON = { designThinking: "DTK1234", makerSpace: "EG1311", ai: "CDE2212", projectManagement: "PF1101A" };
+const CDE_ENGINEERING_CORE = ["MA1511", "MA1512", "MA1508E", "EG2401A", "EG3611A"];
+const CDE_PILLAR_PREFIX = { data: "GEA", cultures: "GEC", singapore: "GES", critique: "GEX" };
+
 // Resolves a base course code to a catalogue entry, falling back to the first lettered
 // variant when only variants exist (e.g. ACC1701 -> ACC1701A, BSP4701 -> BSP4701A).
 function resolveCode(base, moduleByCode) {
@@ -857,11 +865,75 @@ function buildChsRequirements(major, modules, moduleByCode, totalCredits, blocke
     return { required, servicePins, servicePair, serviceSlots, computeChecks };
 }
 
+// Builds the College of Design and Engineering common curriculum: the six GE pillars,
+// the CDE common courses (Design Thinking, Maker Space, AI, Project Management), and the
+// Engineering Core for the B.Eng majors.
+function buildCdeRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices) {
+    const coreSet = new Set(major.core);
+    const covered = new Set([...major.core, ...COMMON_MODULES]);
+    const avoid = new Set(covered);
+    const required = [];
+    const addReq = (code) => {
+        if (code && moduleByCode.has(code) && !coreSet.has(code) && !required.includes(code)) {
+            required.push(code);
+            avoid.add(code);
+        }
+    };
+    const coveredByPrefix = (prefix) => [...covered].some((code) => code.startsWith(prefix) && moduleByCode.has(code));
+
+    // GE pillars (Digital Literacy = GEI1001; Communities & Engagement = Service Learning)
+    addReq(CDE_DIGITAL_LITERACY);
+    const pillarPicks = {};
+    for (const [key, prefix] of Object.entries(CDE_PILLAR_PREFIX)) {
+        if (coveredByPrefix(prefix)) {
+            pillarPicks[key] = [...covered].find((code) => code.startsWith(prefix) && moduleByCode.has(code));
+        } else {
+            pillarPicks[key] = pickPillarCourse(modules, prefix, avoid);
+            addReq(pillarPicks[key]);
+        }
+    }
+
+    // CDE common courses
+    for (const code of Object.values(CDE_COMMON)) addReq(code);
+
+    // Engineering Core (B.Eng majors only)
+    const isEngineering = !CDE_DESIGN_MAJORS.has(major.id);
+    if (isEngineering) for (const code of CDE_ENGINEERING_CORE) addReq(code);
+
+    const { servicePair, servicePins, serviceSlots } = placeServiceLearning(moduleByCode, totalCredits, blockedSemIndices);
+
+    const computeChecks = (planned) => {
+        const has = (code) => code && planned.has(code);
+        const hasPrefix = (prefix) => [...planned].some((code) => code.startsWith(prefix));
+        const ceSatisfied = Boolean(servicePair && has(servicePair[0]) && has(servicePair[1]))
+            || [...planned].some((code) => /^GEN2/.test(code) && !/[XY]$/.test(code));
+        const checks = [
+            { key: "digital-literacy", label: "University Pillar · Digital Literacy", satisfied: has(CDE_DIGITAL_LITERACY), detail: CDE_DIGITAL_LITERACY },
+            { key: "data-literacy", label: "University Pillar · Data Literacy", satisfied: hasPrefix("GEA"), detail: pillarPicks.data || "GEA course" },
+            { key: "cultures", label: "University Pillar · Cultures & Connections", satisfied: hasPrefix("GEC"), detail: pillarPicks.cultures || "GEC course" },
+            { key: "critique", label: "University Pillar · Critique & Expression", satisfied: hasPrefix("GEX"), detail: pillarPicks.critique || "GEX course" },
+            { key: "singapore", label: "University Pillar · Singapore Studies", satisfied: hasPrefix("GES"), detail: pillarPicks.singapore || "GES course" },
+            { key: "community", label: "University Pillar · Communities & Engagement", satisfied: ceSatisfied, detail: servicePair ? `${servicePair[0]} + ${servicePair[1]}` : "Service Learning" },
+            { key: "design-thinking", label: "CDE Common · Design Thinking", satisfied: has(CDE_COMMON.designThinking), detail: CDE_COMMON.designThinking },
+            { key: "maker-space", label: "CDE Common · Maker Space", satisfied: has(CDE_COMMON.makerSpace), detail: CDE_COMMON.makerSpace },
+            { key: "ai", label: "CDE Common · Artificial Intelligence", satisfied: has(CDE_COMMON.ai), detail: CDE_COMMON.ai },
+            { key: "project-management", label: "CDE Common · Project Management", satisfied: has(CDE_COMMON.projectManagement), detail: CDE_COMMON.projectManagement },
+        ];
+        if (isEngineering) {
+            checks.push({ key: "engineering-core", label: "Engineering Core (Maths, Professionalism, Industrial Attachment)", satisfied: CDE_ENGINEERING_CORE.every((code) => has(code)), detail: CDE_ENGINEERING_CORE.join(", ") });
+        }
+        return checks;
+    };
+
+    return { required, servicePins, servicePair, serviceSlots, computeChecks };
+}
+
 // Returns the graduation-requirement builder for the major's faculty, or null.
 function buildFacultyRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices) {
     if (SOC_MAJOR_IDS.has(major.id)) return buildComputingRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
     if (major.faculty === BUSINESS_FACULTY) return buildBusinessRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
     if (major.faculty === CHS_FACULTY && !CHS_EXCLUDED_MAJORS.has(major.id)) return buildChsRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
+    if (major.faculty === CDE_FACULTY) return buildCdeRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
     return null;
 }
 
