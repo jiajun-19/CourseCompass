@@ -154,6 +154,49 @@ function isCdCourse(code) {
     return CD_COURSE_SET.has(code);
 }
 
+// --- NUS Business School (BBA) graduation requirements ---
+const BUSINESS_FACULTY = "NUS Business School";
+const BUSINESS_FUNCTION_COURSES = ["ACC1701", "MKT1705", "MNO1706", "DAO2702", "DAO2703", "FIN2704"];
+const BUSINESS_ENVIRONMENT_COURSES = ["BSP1702", "BSP1703", "DAO1704", "ES2002", "RE1708", "MNO2708"];
+const BBA_DIGITAL_LITERACY = "DAO1704"; // Digital Literacy pillar, also a Business Environment course
+const FIELD_SERVICE_PROJECT = "FSP4003"; // Cross-disciplinary consulting practicum (8 units)
+const BBA_CAPSTONE = { accountancy: "ACC4701", "real-estate": "RE4701" }; // default BSP4701
+const BBA_PILLAR_PREFIX = { data: "GEA", cultures: "GEC", singapore: "GES", critique: "GEX" };
+
+// Resolves a base course code to a catalogue entry, falling back to the first lettered
+// variant when only variants exist (e.g. ACC1701 -> ACC1701A, BSP4701 -> BSP4701A).
+function resolveCode(base, moduleByCode) {
+    if (moduleByCode.has(base)) return base;
+    const variant = new RegExp(`^${base}[A-Z]+$`);
+    let best = null;
+    for (const code of moduleByCode.keys()) {
+        if (variant.test(code) && (!best || code < best)) best = code;
+    }
+    return best;
+}
+
+// Chooses and places a year-long Service Learning pair across two contiguous semesters,
+// preferring Year 2 (or Year 1 for poly students).
+function placeServiceLearning(moduleByCode, totalCredits, blockedSemIndices) {
+    const pair = SERVICE_LEARNING_PAIRS.find(([x, y]) => moduleByCode.has(x) && moduleByCode.has(y)) || null;
+    const servicePins = new Map();
+    let serviceSlots = null;
+    if (pair) {
+        const preferredYears = totalCredits === 140 ? [1, 2, 3] : [2, 1, 3];
+        for (const year of preferredYears) {
+            const s1 = 2 * year - 1;
+            const s2 = 2 * year;
+            if (!blockedSemIndices.has(s1) && !blockedSemIndices.has(s2)) {
+                serviceSlots = [SEM_LABELS[s1 - 1], SEM_LABELS[s2 - 1]];
+                servicePins.set(pair[0], serviceSlots[0]);
+                servicePins.set(pair[1], serviceSlots[1]);
+                break;
+            }
+        }
+    }
+    return { servicePair: serviceSlots ? pair : null, servicePins, serviceSlots };
+}
+
 function moduleLevel(code) {
     const match = code.match(/\d/);
     return match ? Number(code.slice(match.index, match.index + 1)) : 9;
@@ -571,14 +614,114 @@ function buildComputingRequirements(major, modules, moduleByCode, totalCredits, 
         }
     }
 
+    const servicePairValue = serviceSlots ? pair : null;
+    const computeChecks = (planned) => {
+        const has = (code) => code && planned.has(code);
+        const hasPrefix = (prefix) => [...planned].some((code) => code.startsWith(prefix));
+        const programmingCovered = [...planned].some((code) => /^CS(1010[A-Z]*|1101S)$/.test(code));
+        const ceSatisfied = Boolean(servicePairValue && has(servicePairValue[0]) && has(servicePairValue[1]))
+            || [...planned].some((code) => /^GEN2/.test(code) && !/[XY]$/.test(code));
+        const idCd = [...planned].filter((code) => isIdCourse(code) || isCdCourse(code));
+        const idCount = idCd.filter((code) => isIdCourse(code) && !isCdCourse(code)).length;
+        const cdCount = idCd.filter((code) => isCdCourse(code)).length;
+        const idCdUnits = idCd.reduce((sum, code) => sum + moduleCredits(moduleByCode.get(code)), 0);
+        return [
+            { key: "digital-literacy", label: "University Pillar · Digital Literacy", satisfied: programmingCovered, detail: "Programming Methodology" },
+            { key: "data-literacy", label: "University Pillar · Data Literacy", satisfied: has(degree.dataLiteracy), detail: degree.dataLiteracy },
+            { key: "critique", label: "University Pillar · Critique & Expression", satisfied: has(degree.critique), detail: degree.critique },
+            { key: "cultures", label: "University Pillar · Cultures & Connections", satisfied: hasPrefix("GEC"), detail: cultures || "GEC course" },
+            { key: "singapore", label: "University Pillar · Singapore Studies", satisfied: hasPrefix("GES"), detail: singapore || "GES course" },
+            { key: "community", label: "University Pillar · Communities & Engagement", satisfied: ceSatisfied, detail: servicePairValue ? `${servicePairValue[0]} + ${servicePairValue[1]}` : "Service Learning" },
+            { key: "ethics", label: "Computing Ethics", satisfied: has(SOC_ETHICS), detail: SOC_ETHICS },
+            { key: "id-cd", label: "Interdisciplinary/Cross-disciplinary (12 units · ≥2 ID · ≤1 CD)", satisfied: idCdUnits >= IDCD_REQUIRED_UNITS && idCount >= IDCD_MIN_ID && cdCount <= IDCD_MAX_CD, detail: `${idCdUnits} units · ${idCount} ID · ${cdCount} CD` },
+        ];
+    };
+
     return {
         required,
         idPicked,
         servicePins,
-        servicePair: serviceSlots ? pair : null,
+        servicePair: servicePairValue,
         serviceSlots,
         pillars: { programming, dataLiteracy: degree.dataLiteracy, critique: degree.critique, cultures, singapore },
+        computeChecks,
     };
+}
+
+// Builds the NUS Business School (BBA) common-curriculum and major requirement set:
+// Business Function and Business Environment courses, the six university pillars, the
+// Field Service Project, the major capstone, and the Work/Global Experience milestones.
+function buildBusinessRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices) {
+    const coreSet = new Set(major.core);
+    const covered = new Set([...major.core, ...COMMON_MODULES]);
+    const avoid = new Set(covered);
+    const required = [];
+    const addReq = (code) => {
+        if (code && moduleByCode.has(code) && !coreSet.has(code) && !required.includes(code)) {
+            required.push(code);
+            avoid.add(code);
+        }
+    };
+    const coveredByPrefix = (prefix) => [...covered].some((code) => code.startsWith(prefix) && moduleByCode.has(code));
+    const resolveAdd = (base) => {
+        const code = resolveCode(base, moduleByCode);
+        if (code) addReq(code);
+        return code;
+    };
+
+    const functionResolved = BUSINESS_FUNCTION_COURSES.map((base) => ({ base, code: resolveAdd(base) }));
+    const environmentResolved = BUSINESS_ENVIRONMENT_COURSES.map((base) => ({ base, code: resolveAdd(base) }));
+    const digitalLiteracy = resolveCode(BBA_DIGITAL_LITERACY, moduleByCode);
+
+    // University pillars from GE pools (skip when a core/common module already covers it).
+    const pillarPicks = {};
+    for (const [key, prefix] of Object.entries(BBA_PILLAR_PREFIX)) {
+        if (coveredByPrefix(prefix)) {
+            pillarPicks[key] = [...covered].find((code) => code.startsWith(prefix) && moduleByCode.has(code));
+        } else {
+            pillarPicks[key] = pickPillarCourse(modules, prefix, avoid);
+            addReq(pillarPicks[key]);
+        }
+    }
+
+    const fieldServiceProject = resolveAdd(FIELD_SERVICE_PROJECT);
+    const capstone = resolveAdd(BBA_CAPSTONE[major.id] || "BSP4701");
+
+    const { servicePair, servicePins, serviceSlots } = placeServiceLearning(moduleByCode, totalCredits, blockedSemIndices);
+
+    const computeChecks = (planned, ctx = {}) => {
+        const has = (code) => code && planned.has(code);
+        const hasPrefix = (prefix) => [...planned].some((code) => code.startsWith(prefix));
+        const functionOk = functionResolved.every((item) => item.code && has(item.code));
+        const envAvailable = environmentResolved.filter((item) => item.code);
+        const envMissing = environmentResolved.filter((item) => !item.code).map((item) => item.base);
+        const envOk = envAvailable.length > 0 && envAvailable.every((item) => has(item.code));
+        const ceSatisfied = Boolean(servicePair && has(servicePair[0]) && has(servicePair[1]))
+            || [...planned].some((code) => /^GEN2/.test(code) && !/[XY]$/.test(code));
+        return [
+            { key: "business-function", label: "Business Function Courses (24 units)", satisfied: functionOk, detail: functionResolved.map((item) => item.code || item.base).join(", ") },
+            { key: "business-environment", label: "Business Environment Courses (20 units)", satisfied: envOk, detail: envMissing.length ? `Not in catalogue: ${envMissing.join(", ")}` : envAvailable.map((item) => item.code).join(", ") },
+            { key: "digital-literacy", label: "University Pillar · Digital Literacy", satisfied: has(digitalLiteracy), detail: digitalLiteracy || BBA_DIGITAL_LITERACY },
+            { key: "data-literacy", label: "University Pillar · Data Literacy", satisfied: hasPrefix("GEA"), detail: pillarPicks.data || "GEA course" },
+            { key: "cultures", label: "University Pillar · Cultures & Connections", satisfied: hasPrefix("GEC"), detail: pillarPicks.cultures || "GEC course" },
+            { key: "critique", label: "University Pillar · Critique & Expression", satisfied: hasPrefix("GEX"), detail: pillarPicks.critique || "GEX course" },
+            { key: "singapore", label: "University Pillar · Singapore Studies", satisfied: hasPrefix("GES"), detail: pillarPicks.singapore || "GES course" },
+            { key: "community", label: "University Pillar · Communities & Engagement", satisfied: ceSatisfied, detail: servicePair ? `${servicePair[0]} + ${servicePair[1]}` : "Service Learning" },
+            { key: "field-service-project", label: "Cross-Disciplinary · Field Service Project", satisfied: has(fieldServiceProject), detail: fieldServiceProject || FIELD_SERVICE_PROJECT },
+            { key: "capstone", label: "Major Capstone", satisfied: has(capstone), detail: capstone || BBA_CAPSTONE[major.id] || "BSP4701" },
+            { key: "wem", label: "Work Experience Milestone", satisfied: Boolean(ctx.hasInternship), detail: ctx.hasInternship ? "Internship planned" : "Add an internship to fulfil WEM" },
+            { key: "gem", label: "Global Experience Milestone", satisfied: Boolean(ctx.hasExchange), detail: ctx.hasExchange ? "Exchange planned" : "Add an exchange semester to fulfil GEM" },
+        ];
+    };
+
+    return { required, servicePins, servicePair, serviceSlots, computeChecks };
+}
+
+// Returns the graduation-requirement builder for the major's faculty, or null.
+function buildFacultyRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices) {
+    if (SOC_MAJOR_IDS.has(major.id)) return buildComputingRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
+    if (major.faculty === BUSINESS_FACULTY) return buildBusinessRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
+    return null;
 }
 
 function buildRoadmap(major, modules, prerequisiteRows, options) {
@@ -652,10 +795,10 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     if (exchangeSemester) blockedSemIndices.add(exchangeSemester);
     if (internshipSlot && internshipSlot.kind === "sem") blockedSemIndices.add(internshipSlot.semIndex);
 
-    // --- Faculty (School of Computing) graduation requirements ---
-    const computingReq = buildComputingRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
-    const facultyRequiredCodes = new Set((computingReq?.required || []).filter((code) => moduleByCode.has(code)));
-    const serviceCodes = new Set(computingReq ? [...computingReq.servicePins.keys()] : []);
+    // --- Faculty graduation requirements (School of Computing / NUS Business School) ---
+    const facultyReq = buildFacultyRequirements(major, modules, moduleByCode, totalCredits, blockedSemIndices);
+    const facultyRequiredCodes = new Set((facultyReq?.required || []).filter((code) => moduleByCode.has(code)));
+    const serviceCodes = new Set(facultyReq ? [...facultyReq.servicePins.keys()] : []);
 
     // --- Student add / remove edits ---
     const removeSet = new Set((options.removeModules || []).filter((code) => moduleByCode.has(code)));
@@ -678,8 +821,8 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     }
 
     // Default-place the year-long Service Learning pair unless the student has moved it.
-    if (computingReq) {
-        for (const [code, slotId] of computingReq.servicePins) {
+    if (facultyReq) {
+        for (const [code, slotId] of facultyReq.servicePins) {
             if (!pinSlot.has(code) && !removeSet.has(code) && moduleByCode.has(code)) pinSlot.set(code, slotId);
         }
     }
@@ -707,7 +850,7 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     // For School of Computing, Communities & Engagement is met by the year-long Service
     // Learning pair, so keep the semester-long GEN alternatives out of the auto base.
     const baseExclude = new Set([...pinnedCodes, ...mandatoryAutoCodes]);
-    if (computingReq) for (const code of SEMESTER_LONG_CE) baseExclude.add(code);
+    if (facultyReq) for (const code of SEMESTER_LONG_CE) baseExclude.add(code);
 
     // --- Module set: deterministic base (excluding pinned), then apply removals ---
     const baseSelected = selectBaseModules(major, modules, moduleByCode, autoBudget, baseExclude, interestArea);
@@ -759,7 +902,7 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
 
     const corePriority = new Map(major.core.map((code, index) => [code, index]));
     const addOnPriority = new Map([...addOnCodes].map((code, index) => [code, index]));
-    const facultyPriority = new Map((computingReq?.required || []).map((code, index) => [code, index]));
+    const facultyPriority = new Map((facultyReq?.required || []).map((code, index) => [code, index]));
     const priorityOf = (code) => {
         if (corePriority.has(code)) return corePriority.get(code);
         if (addOnPriority.has(code)) return 200 + addOnPriority.get(code);
@@ -912,30 +1055,13 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         }
     }
 
-    // --- School of Computing common-curriculum requirement checks ---
+    // --- Faculty common-curriculum requirement checks ---
     let requirementSummary = null;
-    if (computingReq) {
-        const has = (code) => code && planned.has(code);
-        const hasPrefix = (prefix) => [...planned].some((code) => code.startsWith(prefix));
-        const programmingCovered = [...planned].some((code) => /^CS(1010[A-Z]*|1101S)$/.test(code));
-        const pair = computingReq.servicePair;
-        const ceSatisfied = Boolean(pair && has(pair[0]) && has(pair[1]))
-            || [...planned].some((code) => /^GEN2/.test(code) && !/[XY]$/.test(code));
-        const idCdCodes = [...planned].filter((code) => isIdCourse(code) || isCdCourse(code));
-        const idCount = idCdCodes.filter((code) => isIdCourse(code) && !isCdCourse(code)).length;
-        const cdCount = idCdCodes.filter((code) => isCdCourse(code)).length;
-        const idCdUnits = idCdCodes.reduce((sum, code) => sum + moduleCredits(moduleByCode.get(code)), 0);
-
-        const checks = [
-            { key: "digital-literacy", label: "University Pillar · Digital Literacy", satisfied: programmingCovered, detail: "Programming Methodology" },
-            { key: "data-literacy", label: "University Pillar · Data Literacy", satisfied: has(computingReq.pillars.dataLiteracy), detail: computingReq.pillars.dataLiteracy },
-            { key: "critique", label: "University Pillar · Critique & Expression", satisfied: has(computingReq.pillars.critique), detail: computingReq.pillars.critique },
-            { key: "cultures", label: "University Pillar · Cultures & Connections", satisfied: hasPrefix("GEC"), detail: computingReq.pillars.cultures || "GEC course" },
-            { key: "singapore", label: "University Pillar · Singapore Studies", satisfied: hasPrefix("GES"), detail: computingReq.pillars.singapore || "GES course" },
-            { key: "community", label: "University Pillar · Communities & Engagement", satisfied: ceSatisfied, detail: pair ? `${pair[0]} + ${pair[1]}` : "Service Learning" },
-            { key: "ethics", label: "Computing Ethics", satisfied: has(SOC_ETHICS), detail: SOC_ETHICS },
-            { key: "id-cd", label: "Interdisciplinary/Cross-disciplinary (12 units · ≥2 ID · ≤1 CD)", satisfied: idCdUnits >= IDCD_REQUIRED_UNITS && idCount >= IDCD_MIN_ID && cdCount <= IDCD_MAX_CD, detail: `${idCdUnits} units · ${idCount} ID · ${cdCount} CD` },
-        ];
+    if (facultyReq) {
+        const checks = facultyReq.computeChecks(planned, {
+            hasExchange: Boolean(exchangeSemester),
+            hasInternship: Boolean(internshipSlotId),
+        });
         for (const check of checks) {
             if (!check.satisfied) warnings.push(`Graduation requirement not yet met — ${check.label}.`);
         }
