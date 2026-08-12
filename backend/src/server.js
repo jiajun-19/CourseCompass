@@ -1116,14 +1116,32 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
     const corePriority = new Map(major.core.map((code, index) => [code, index]));
     const addOnPriority = new Map([...addOnCodes].map((code, index) => [code, index]));
     const facultyPriority = new Map((facultyReq?.required || []).map((code, index) => [code, index]));
-    const priorityOf = (code) => {
+    const basePriorityOf = (code) => {
         if (corePriority.has(code)) return corePriority.get(code);
         if (addOnPriority.has(code)) return 200 + addOnPriority.get(code);
         if (facultyPriority.has(code)) return 400 + facultyPriority.get(code);
         return 1000 + moduleLevel(code);
     };
+    // Pull each in-plan prerequisite ahead of the modules that depend on it, so a low
+    // priority elective that unlocks a core module is not left until after (or in the same
+    // semester as) that core module.
+    const priorityOf = new Map([...planned].map((code) => [code, basePriorityOf(code)]));
+    for (let pass = 0; pass < 6; pass += 1) {
+        let changed = false;
+        for (const code of planned) {
+            for (const prereq of prereqEdges.get(code) || []) {
+                if (!planned.has(prereq)) continue;
+                const wanted = priorityOf.get(code) - 1;
+                if (priorityOf.get(prereq) > wanted) {
+                    priorityOf.set(prereq, wanted);
+                    changed = true;
+                }
+            }
+        }
+        if (!changed) break;
+    }
     const remainingAuto = new Set([...planned].filter((code) => !placed.has(code)));
-    const autoOrder = [...remainingAuto].sort((a, b) => priorityOf(a) - priorityOf(b) || a.localeCompare(b));
+    const autoOrder = [...remainingAuto].sort((a, b) => priorityOf.get(a) - priorityOf.get(b) || a.localeCompare(b));
     const completed = new Set();
 
     for (const slot of slots) {
@@ -1158,17 +1176,39 @@ function buildRoadmap(major, modules, prerequisiteRows, options) {
         for (const code of slotModules.get(slot.id)) completed.add(code);
     }
 
-    // Residual placement for modules that did not fit a target slot, latest-first.
-    for (const code of [...remainingAuto]) {
-        const credits = moduleCredits(moduleByCode.get(code));
-        const destination = activeRegular
-            .slice()
-            .reverse()
-            .find((slot) => slotCredits.get(slot.id) + credits <= SEMESTER_CAP);
-        if (destination) {
+    // Residual placement: place any leftover module in the earliest slot that comes after
+    // all of its in-plan prerequisites and still has room, never placing a module in or
+    // before a prerequisite's semester. Fill each semester up to its target first (to keep
+    // the plan balanced) and only overflow toward the cap as a last resort.
+    const placedSlotIndex = new Map();
+    for (const slot of slots) {
+        for (const code of slotModules.get(slot.id)) placedSlotIndex.set(code, slotOrder.get(slot.id));
+    }
+    let placedSomething = true;
+    while (placedSomething && remainingAuto.size) {
+        placedSomething = false;
+        for (const code of [...remainingAuto]) {
+            const credits = moduleCredits(moduleByCode.get(code));
+            const edges = prereqEdges.get(code);
+            const inPlanPrereqs = edges ? [...edges].filter((item) => planned.has(item)) : [];
+            if (inPlanPrereqs.some((item) => !placedSlotIndex.has(item))) continue; // wait for prerequisites
+            const earliestSlot = inPlanPrereqs.length
+                ? Math.max(...inPlanPrereqs.map((item) => placedSlotIndex.get(item)))
+                : -1;
+            const candidates = activeRegular.filter((slot) => slotOrder.get(slot.id) > earliestSlot);
+            const underTarget = candidates.filter((slot) => slotCredits.get(slot.id) + credits <= Math.max(targets.get(slot.id) || 0, 0));
+            const pool = underTarget.length
+                ? underTarget
+                : candidates.filter((slot) => slotCredits.get(slot.id) + credits <= SEMESTER_CAP);
+            if (!pool.length) continue;
+            // Balance the plan: place in the least-loaded eligible semester.
+            pool.sort((a, b) => slotCredits.get(a.id) - slotCredits.get(b.id) || slotOrder.get(a.id) - slotOrder.get(b.id));
+            const destination = pool[0];
             slotModules.get(destination.id).push(code);
             slotCredits.set(destination.id, slotCredits.get(destination.id) + credits);
+            placedSlotIndex.set(code, slotOrder.get(destination.id));
             remainingAuto.delete(code);
+            placedSomething = true;
         }
     }
     if (remainingAuto.size) {
@@ -1499,6 +1539,12 @@ app.post("/api/plans/generate", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+// Only start the HTTP server when run directly, so the pure planner functions can be
+// imported by the test suite without opening a port or touching the database.
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+}
+
+module.exports = { app, buildRoadmap, buildFacultyRequirements, MAJORS };
