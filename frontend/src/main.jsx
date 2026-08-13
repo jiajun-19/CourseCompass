@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL ||
+  'https://course-compass-rust.vercel.app';
 
 async function getJson(path) {
   const response = await fetch(`${API_BASE_URL}${path}`);
