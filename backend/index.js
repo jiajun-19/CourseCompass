@@ -1,3 +1,9 @@
-const app = require("./src/server");
+conconst importedApp = require("./src/server.js");
+const app = importedApp.default || importedApp;
 
-module.exports = app;
+function handler(req, res) {
+    return app(req, res);
+}
+
+module.exports = handler;
+module.exports.default = handler;
