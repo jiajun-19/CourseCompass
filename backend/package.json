@@ -2,7 +2,7 @@
     "name": "backend",
     "version": "1.0.0",
     "description": "Express backend for CourseCompass Milestone 1 proof of concept",
-    "main": "src/server.js",
+    "main": "index.js",
     "scripts": {
         "dev": "node --watch src/server.js",
         "start": "node src/server.js",
