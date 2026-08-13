@@ -1,6 +1,7 @@
 {
     "name": "backend",
     "version": "1.0.0",
+    "type": "commonjs"
     "description": "Express backend for CourseCompass Milestone 1 proof of concept",
     "main": "index.js",
     "scripts": {
