@@ -1547,4 +1547,8 @@ if (require.main === module) {
     });
 }
 
-module.exports = { app, buildRoadmap, buildFacultyRequirements, MAJORS };
+module.exports = app;
+module.exports.app = app;
+module.exports.buildRoadmap = buildRoadmap;
+module.exports.buildFacultyRequirements = buildFacultyRequirements;
+module.exports.MAJORS = MAJORS;
